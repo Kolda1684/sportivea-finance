@@ -49,7 +49,7 @@ export async function POST() {
   for (let page = 1; page <= 3; page++) {
     try {
       const res = await fetch(
-        `${FAKTUROID_BASE}/${slug}/received_invoices.json?page=${page}`,
+        `${FAKTUROID_BASE}/${slug}/inbox_invoices.json?page=${page}`,
         { headers, cache: 'no-store' }
       )
       if (!res.ok) {
