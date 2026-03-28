@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+build/
+
+# Environment variables – NIKDY do gitu
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Citlivé soubory
+*.pem
+*.key
+
+# Misc
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
