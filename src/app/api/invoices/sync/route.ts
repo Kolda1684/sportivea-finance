@@ -12,6 +12,7 @@ async function getAccessToken(clientId: string, clientSecret: string): Promise<s
     headers: {
       Authorization: `Basic ${encoded}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
     },
     body: 'grant_type=client_credentials',
     cache: 'no-store',
