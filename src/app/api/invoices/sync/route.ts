@@ -2,23 +2,49 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
 
-const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v2/accounts'
+const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
+const TOKEN_URL = 'https://app.fakturoid.cz/api/v3/oauth/token'
+
+async function getAccessToken(clientId: string, clientSecret: string): Promise<string> {
+  const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${encoded}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`OAuth token chyba ${res.status}: ${body}`)
+  }
+  const data = await res.json()
+  return data.access_token
+}
 
 export async function POST() {
-  const email = process.env.FAKTUROID_EMAIL
-  const token = process.env.FAKTUROID_API_TOKEN
+  const clientId = process.env.FAKTUROID_CLIENT_ID
+  const clientSecret = process.env.FAKTUROID_CLIENT_SECRET
   const slug = process.env.FAKTUROID_SLUG
 
-  if (!email || !token || !slug) {
+  if (!clientId || !clientSecret || !slug) {
     return NextResponse.json(
-      { error: `Chybí env proměnné: ${!email ? 'FAKTUROID_EMAIL ' : ''}${!token ? 'FAKTUROID_API_TOKEN ' : ''}${!slug ? 'FAKTUROID_SLUG' : ''}` },
+      { error: `Chybí env proměnné: ${!clientId ? 'FAKTUROID_CLIENT_ID ' : ''}${!clientSecret ? 'FAKTUROID_CLIENT_SECRET ' : ''}${!slug ? 'FAKTUROID_SLUG' : ''}` },
       { status: 500 }
     )
   }
 
-  const encoded = Buffer.from(`${email}:${token}`).toString('base64')
+  let accessToken: string
+  try {
+    accessToken = await getAccessToken(clientId, clientSecret)
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+
   const headers = {
-    Authorization: `Basic ${encoded}`,
+    Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'User-Agent': 'SportiveaFinanceDashboard/1.0',
   }
