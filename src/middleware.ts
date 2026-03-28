@@ -5,7 +5,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Veřejné cesty — nepotřebují přihlášení
-  if (pathname.startsWith('/login') || pathname.startsWith('/api/')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/api/auth/')) {
     return NextResponse.next()
   }
 
