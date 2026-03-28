@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 const navItems = [
   {
@@ -57,9 +58,14 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const [costsOpen, setCostsOpen] = useState(
-    pathname.startsWith('/costs')
-  )
+  const router = useRouter()
+  const [costsOpen, setCostsOpen] = useState(pathname.startsWith('/costs'))
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+    router.refresh()
+  }
 
   return (
     <aside className="flex h-screen w-60 flex-col bg-primary-900 text-white">
@@ -132,7 +138,10 @@ export function Sidebar() {
 
       {/* Spodní část */}
       <div className="border-t border-primary-800 px-3 py-3">
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-primary-200 hover:bg-primary-800 hover:text-white transition-colors">
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-primary-200 hover:bg-primary-800 hover:text-white transition-colors"
+        >
           <LogOut className="h-4 w-4 flex-shrink-0" />
           Odhlásit se
         </button>
