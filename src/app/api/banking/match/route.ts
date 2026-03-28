@@ -49,15 +49,24 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // 3. Jméno klienta v názvu protiúčtu
-    if (!matchedInvoice && tx.counterparty_name) {
-      const txName = tx.counterparty_name.toLowerCase()
+    // 3. Jméno klienta v názvu protiúčtu nebo ve zprávě
+    const searchText = [tx.counterparty_name, tx.message].filter(Boolean).join(' ').toLowerCase()
+    if (!matchedInvoice && searchText) {
       matchedInvoice = invoices.find(inv => {
         if (!inv.subject_name) return false
         const invName = inv.subject_name.toLowerCase()
-        // Alespoň první slovo se shoduje
         const firstWord = invName.split(' ')[0]
-        return txName.includes(firstWord) || invName.includes(txName.split(' ')[0])
+        if (firstWord.length < 3) return false // příliš krátké slovo, přeskočit
+        return searchText.includes(firstWord) || invName.split(' ').some(w => w.length >= 4 && searchText.includes(w))
+      })
+    }
+
+    // 3b. Číslo faktury ve zprávě
+    if (!matchedInvoice && tx.message) {
+      matchedInvoice = invoices.find(inv => {
+        const invNum = inv.number?.replace(/\s/g, '')
+        if (!invNum) return false
+        return tx.message!.includes(invNum)
       })
     }
 
