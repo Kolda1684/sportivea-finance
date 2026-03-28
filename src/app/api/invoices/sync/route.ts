@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
-import { fetchInvoices, mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
+import { mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
+
+const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
 
 export async function POST() {
   const email = process.env.FAKTUROID_EMAIL
@@ -9,37 +11,76 @@ export async function POST() {
 
   if (!email || !token || !slug) {
     return NextResponse.json(
-      { error: 'Fakturoid přihlašovací údaje chybí v prostředí.' },
+      { error: `Chybí env proměnné: ${!email ? 'FAKTUROID_EMAIL ' : ''}${!token ? 'FAKTUROID_API_TOKEN ' : ''}${!slug ? 'FAKTUROID_SLUG' : ''}` },
       { status: 500 }
     )
   }
 
-  const supabase = createAdminSupabaseClient()
+  const encoded = Buffer.from(`${email}:${token}`).toString('base64')
+  const headers = {
+    Authorization: `Basic ${encoded}`,
+    'Content-Type': 'application/json',
+    'User-Agent': 'SportiveaFinanceDashboard/1.0',
+  }
 
-  // Stáhni max 3 stránky (75 faktur)
-  const allInvoices = []
-  for (let page = 1; page <= 3; page++) {
+  // Test připojení — stáhni první stránku
+  const url = `${FAKTUROID_BASE}/${slug}/invoices.json?page=1`
+  let fakturoidRes: Response
+  try {
+    fakturoidRes = await fetch(url, { headers, cache: 'no-store' })
+  } catch (e) {
+    return NextResponse.json({ error: `Nepodařilo se připojit k Fakturoid: ${e}` }, { status: 500 })
+  }
+
+  if (!fakturoidRes.ok) {
+    const body = await fakturoidRes.text()
+    return NextResponse.json(
+      { error: `Fakturoid vrátil chybu ${fakturoidRes.status}: ${body}` },
+      { status: 500 }
+    )
+  }
+
+  const firstPage = await fakturoidRes.json()
+  if (!Array.isArray(firstPage)) {
+    return NextResponse.json(
+      { error: `Fakturoid vrátil neočekávaný formát: ${JSON.stringify(firstPage).slice(0, 200)}` },
+      { status: 500 }
+    )
+  }
+
+  const allInvoices = [...firstPage]
+
+  // Stáhni další stránky
+  for (let page = 2; page <= 5; page++) {
     try {
-      const batch = await fetchInvoices(slug, email, token, page)
-      if (!batch.length) break
+      const res = await fetch(`${FAKTUROID_BASE}/${slug}/invoices.json?page=${page}`, { headers, cache: 'no-store' })
+      if (!res.ok) break
+      const batch = await res.json()
+      if (!Array.isArray(batch) || batch.length === 0) break
       allInvoices.push(...batch)
-      if (batch.length < 20) break // poslední stránka
+      if (batch.length < 20) break
     } catch {
       break
     }
   }
 
   if (allInvoices.length === 0) {
-    return NextResponse.json({ imported: 0, total: 0 })
+    return NextResponse.json({ imported: 0, total: 0, message: 'Žádné faktury nenalezeny ve Fakturoid' })
   }
 
   const rows = allInvoices.map(mapFakturoidInvoiceToDb)
+  const supabase = createAdminSupabaseClient()
 
-  const { error } = await supabase
+  const { error: dbError } = await supabase
     .from('invoices')
     .upsert(rows, { onConflict: 'fakturoid_id' })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (dbError) {
+    return NextResponse.json(
+      { error: `Chyba uložení do DB: ${dbError.message}` },
+      { status: 500 }
+    )
+  }
 
   return NextResponse.json({ imported: rows.length, total: allInvoices.length })
 }
