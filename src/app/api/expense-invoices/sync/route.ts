@@ -49,7 +49,7 @@ export async function POST() {
   for (let page = 1; page <= 3; page++) {
     try {
       const res = await fetch(
-        `${FAKTUROID_BASE}/${slug}/inbox_invoices.json?page=${page}`,
+        `${FAKTUROID_BASE}/${slug}/expenses.json?page=${page}`,
         { headers, cache: 'no-store' }
       )
       if (!res.ok) {
@@ -70,11 +70,11 @@ export async function POST() {
   }
 
   const rows = allInvoices.map((inv: Record<string, unknown>) => ({
-    supplier_name: (inv.supplier_name as string) || (inv.subject_name as string) || null,
-    amount: inv.total ? parseFloat(inv.total as string) : null,
-    amount_czk: inv.native_total ? parseFloat(inv.native_total as string) : (inv.total ? parseFloat(inv.total as string) : null),
+    supplier_name: (inv.supplier_name as string) || (inv.subject_name as string) || (inv.description as string) || null,
+    amount: inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null),
+    amount_czk: inv.native_price ? parseFloat(inv.native_price as string) : (inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null)),
     currency: (inv.currency as string) || 'CZK',
-    date: (inv.issued_on as string) || null,
+    date: (inv.taxable_fulfillment_due as string) || (inv.issued_on as string) || null,
     due_date: (inv.due_on as string) || null,
     variable_symbol: (inv.variable_symbol as string) || null,
     status: (inv.status as string) === 'paid' ? 'paid' : 'unpaid',
