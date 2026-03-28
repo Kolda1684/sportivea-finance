@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         matchedInvoice = (invoices ?? []).find(inv => {
           if (!inv.subject_name) return false
           const invName = inv.subject_name.toLowerCase()
-          return invName.split(' ').some(w => w.length >= 4 && searchText.includes(w))
+          return invName.split(' ').some((w: string) => w.length >= 4 && searchText.includes(w))
         }) ?? null
       }
 
