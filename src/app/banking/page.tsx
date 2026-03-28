@@ -202,8 +202,10 @@ export default function BankingPage() {
       fetch(`/api/banking/transactions?${params}`),
       fetch('/api/expense-invoices'),
     ])
-    setTransactions(await txRes.json())
-    setExpenseInvoices(await expRes.json())
+    const txData = await txRes.json()
+    const expData = await expRes.json()
+    setTransactions(Array.isArray(txData) ? txData : [])
+    setExpenseInvoices(Array.isArray(expData) ? expData : [])
     setLoading(false)
   }, [statusFilter, typeFilter])
 
