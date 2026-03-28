@@ -12,10 +12,11 @@ interface Invoice {
   id: string
   fakturoid_id: string
   number: string
-  subject_name: string
+  subject_name: string | null
   issued_on: string
   due_on: string
   total: number
+  subtotal: number | null
   currency: string
   status: string
   variable_symbol: string
@@ -148,7 +149,7 @@ export default function InvoicesPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Číslo', 'Klient', 'Vystaveno', 'Splatnost', 'Částka', 'Status', ''].map(h => (
+                {['Číslo', 'Klient', 'Vystaveno', 'Splatnost', 'Bez DPH', 'S DPH', 'Status', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     {h}
                   </th>
@@ -166,11 +167,12 @@ export default function InvoicesPage() {
               ) : invoices.map(inv => (
                 <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{inv.number}</td>
-                  <td className="px-4 py-3 font-medium">{inv.subject_name}</td>
+                  <td className="px-4 py-3 font-medium">{inv.subject_name ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{formatDate(inv.issued_on)}</td>
                   <td className={cn('px-4 py-3', inv.status === 'overdue' && 'text-red-600 font-medium')}>
                     {formatDate(inv.due_on)}
                   </td>
+                  <td className="px-4 py-3 text-muted-foreground">{inv.subtotal != null ? formatCZK(inv.subtotal) : '—'}</td>
                   <td className="px-4 py-3 font-bold">{formatCZK(inv.total)}</td>
                   <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
                   <td className="px-4 py-3">
@@ -193,6 +195,7 @@ export default function InvoicesPage() {
               <tfoot className="bg-gray-50 border-t">
                 <tr>
                   <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">CELKEM</td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-sm">{formatCZK(invoices.reduce((s, i) => s + (i.subtotal ?? 0), 0))}</td>
                   <td className="px-4 py-2.5 font-bold text-sm">{formatCZK(total)}</td>
                   <td colSpan={2} />
                 </tr>

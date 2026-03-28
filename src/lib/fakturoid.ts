@@ -11,10 +11,15 @@ function authHeader(email: string, token: string) {
 export interface FakturoidInvoice {
   id: number
   number: string
-  subject_name: string
+  subject_name: string | null
+  client_name: string | null
+  subject?: { name?: string; full_name?: string }
   issued_on: string
   due_on: string
   total: string
+  subtotal: string | null
+  native_total: string | null
+  native_subtotal: string | null
   currency: string
   status: string
   variable_symbol: string
@@ -68,13 +73,27 @@ export async function markInvoicePaid(
 }
 
 export function mapFakturoidInvoiceToDb(inv: FakturoidInvoice) {
+  // Fakturoid v3 může vracet jméno klienta v různých polích
+  const subjectName =
+    inv.subject_name ||
+    inv.client_name ||
+    inv.subject?.full_name ||
+    inv.subject?.name ||
+    null
+
+  const subtotal =
+    inv.subtotal ? parseFloat(inv.subtotal) :
+    inv.native_subtotal ? parseFloat(inv.native_subtotal) :
+    null
+
   return {
     fakturoid_id: inv.id.toString(),
     number: inv.number,
-    subject_name: inv.subject_name,
+    subject_name: subjectName,
     issued_on: inv.issued_on,
     due_on: inv.due_on,
     total: parseFloat(inv.total),
+    subtotal,
     currency: inv.currency,
     status: inv.status,
     variable_symbol: inv.variable_symbol,
