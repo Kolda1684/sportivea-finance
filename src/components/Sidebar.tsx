@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   LogOut,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -38,6 +39,11 @@ const navItems = [
       { href: '/costs/fixed',    label: 'Fixní' },
       { href: '/costs/extra',    label: 'Extra' },
     ],
+  },
+  {
+    href: '/invoices',
+    label: 'Faktury',
+    icon: FileText,
   },
   {
     href: '/banking',
