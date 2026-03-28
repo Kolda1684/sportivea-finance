@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         matchedInvoice = pool.find(inv => {
           if (!inv.supplier_name) return false
           const name = inv.supplier_name.toLowerCase()
-          return name.split(' ').some(w => w.length >= 4 && searchText.includes(w))
+          return name.split(' ').some((w: string) => w.length >= 4 && searchText.includes(w))
         }) ?? null
       }
 
