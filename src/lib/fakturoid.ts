@@ -1,7 +1,7 @@
 // Fakturoid API v3 wrapper
 // Credentials se načítají ze Supabase DB šifrovaně
 
-const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
+const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v2/accounts'
 
 function authHeader(email: string, token: string) {
   const encoded = Buffer.from(`${email}:${token}`).toString('base64')

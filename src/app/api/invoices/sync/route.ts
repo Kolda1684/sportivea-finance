@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
 
-const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
+const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v2/accounts'
 
 export async function POST() {
   const email = process.env.FAKTUROID_EMAIL
