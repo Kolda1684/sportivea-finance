@@ -312,7 +312,7 @@ export default function BankingPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Datum', 'Protistrana', 'VS', 'Původní částka', 'CZK', 'Spárováno s', 'Status'].map(h => (
+                {['Datum', 'Protistrana', 'VS', 'Zpráva', 'Původní částka', 'CZK', 'Spárováno s', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -320,7 +320,7 @@ export default function BankingPage() {
             <tbody className="divide-y">
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     <Upload className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                     <p>Žádné transakce — importuj CSV z Fio banky</p>
                   </td>
@@ -332,6 +332,9 @@ export default function BankingPage() {
                     {tx.counterparty_name ?? '—'}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{tx.variable_symbol ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-[160px] truncate" title={tx.message ?? ''}>
+                    {tx.message ?? '—'}
+                  </td>
                   <td className={cn('px-4 py-2.5 font-medium', tx.amount > 0 ? 'text-green-700' : 'text-red-600')}>
                     {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString('cs-CZ')} {tx.currency}
                     {tx.currency !== 'CZK' && (
