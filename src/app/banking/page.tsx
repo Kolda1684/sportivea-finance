@@ -192,6 +192,7 @@ export default function BankingPage() {
   const [matching, setMatching] = useState(false)
   const [matchMsg, setMatchMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
+  const [syncingExpenses, setSyncingExpenses] = useState(false)
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true)
@@ -210,6 +211,22 @@ export default function BankingPage() {
   }, [statusFilter, typeFilter])
 
   useEffect(() => { fetchTransactions() }, [fetchTransactions])
+
+  async function handleSyncExpenses() {
+    setSyncingExpenses(true)
+    setMatchMsg(null)
+    try {
+      const res = await fetch('/api/expense-invoices/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMatchMsg({ ok: true, text: `Staženo ${data.imported} přijatých faktur z Fakturoid` })
+      fetchTransactions()
+    } catch (e: unknown) {
+      setMatchMsg({ ok: false, text: e instanceof Error ? e.message : 'Chyba synchronizace' })
+    } finally {
+      setSyncingExpenses(false)
+    }
+  }
 
   async function handleMatch() {
     setMatching(true)
@@ -239,13 +256,17 @@ export default function BankingPage() {
           <p className="text-sm text-gray-500 mt-1">Fio banka · Import CSV · Párování faktur</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleSyncExpenses} disabled={syncingExpenses}>
+            <RefreshCw className={cn('h-4 w-4 mr-2', syncingExpenses && 'animate-spin')} />
+            {syncingExpenses ? 'Stahuji…' : 'Sync přijaté faktury'}
+          </Button>
           <Button variant="outline" onClick={handleMatch} disabled={matching}>
             <RefreshCw className={cn('h-4 w-4 mr-2', matching && 'animate-spin')} />
             {matching ? 'Páruji…' : 'Auto-párování'}
           </Button>
           <Button onClick={() => setAddExpenseOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Nákladová faktura
+            Přidat ručně
           </Button>
         </div>
       </div>
