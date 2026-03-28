@@ -140,7 +140,7 @@ export default function VariableCostsPage() {
     return acc
   }, {})
 
-  const uniqueClients = [...new Set(costs.map(c => c.client).filter(Boolean))]
+  const uniqueClients = Array.from(new Set(costs.map(c => c.client).filter(Boolean)))
 
   return (
     <div className="p-8 space-y-6">
