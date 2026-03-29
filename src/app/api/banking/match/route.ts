@@ -26,8 +26,12 @@ export async function POST(req: NextRequest) {
     .from('expense_invoices')
     .select('id, supplier_name, amount_czk, amount, due_date, variable_symbol')
 
-  const cleanStr = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  // Normalizace: malá písmena + odstranění diakritiky + interpunkce → mezery
+  const norm = (s: string) =>
+    s.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ').trim()
 
   let matched = 0
   const updates: { id: string; matched_invoice_id?: string; matched_expense_invoice_id?: string; status: string }[] = []
@@ -43,56 +47,64 @@ export async function POST(req: NextRequest) {
     if (isExpense) {
       // ── Párování výdajů s nákladovými fakturami ──
       const pool = expenseInvoices ?? []
-      const allText = [tx.counterparty_name, tx.message, tx.variable_symbol].filter(Boolean).join(' ').toLowerCase()
-      // Očisti text — odstraň interpunkci pro porovnání
-      const cleanText = allText.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ')
+      const txVs = tx.variable_symbol?.replace(/\s/g, '') ?? ''
+      const txNorm = norm([tx.counterparty_name, tx.message].filter(Boolean).join(' '))
 
-      // 1. Variabilní symbol — přesná nebo substring shoda
-      if (tx.variable_symbol) {
-        const txVs = tx.variable_symbol.replace(/\s/g, '')
-        matchedInvoice = pool.find(inv => {
-          if (!inv.variable_symbol) return false
-          const invVs = inv.variable_symbol.replace(/\s/g, '')
-          return invVs === txVs || invVs.includes(txVs) || txVs.includes(invVs)
-        }) ?? null
+      // Pro platby kartou ("Nákup: MERCHANT, ...") extrahuj název obchodníka
+      let merchantNorm = ''
+      if (tx.message) {
+        const m = tx.message.match(/n[aá]kup:\s*([^,]+)/i)
+        if (m) merchantNorm = norm(m[1])
       }
 
-      // 2. VS faktury se vyskytuje v textu transakce (message / poznámka)
-      if (!matchedInvoice) {
+      // 1. Variabilní symbol — přesná shoda + částka v rozumném rozsahu (±20 %)
+      if (txVs) {
         matchedInvoice = pool.find(inv => {
           if (!inv.variable_symbol) return false
-          const vs = inv.variable_symbol.replace(/\s/g, '')
-          return vs.length >= 4 && allText.includes(vs)
+          if (inv.variable_symbol.replace(/\s/g, '') !== txVs) return false
+          const invAmt = Math.abs(inv.amount_czk ?? inv.amount ?? 0)
+          if (invAmt === 0) return true
+          return Math.abs(invAmt - txAmount) / Math.max(invAmt, txAmount) <= 0.20
         }) ?? null
+
+        // 1b. VS přesná shoda bez ohledu na částku (VS je spolehlivý identifikátor)
+        if (!matchedInvoice) {
+          matchedInvoice = pool.find(inv =>
+            inv.variable_symbol?.replace(/\s/g, '') === txVs
+          ) ?? null
+        }
       }
 
-      // 3. Jméno dodavatele v textu transakce (po vyčištění interpunkce)
+      // 2. Název obchodníka z "Nákup:" ve jménu dodavatele (slova ≥ 5 znaků)
+      if (!matchedInvoice && merchantNorm) {
+        const merchantWords = merchantNorm.split(' ').filter((w: string) => w.length >= 5)
+        if (merchantWords.length > 0) {
+          matchedInvoice = pool.find(inv => {
+            if (!inv.supplier_name) return false
+            const supplier = norm(inv.supplier_name)
+            return merchantWords.some((w: string) => supplier.includes(w))
+          }) ?? null
+        }
+      }
+
+      // 3. První významné slovo (≥ 5 znaků) z názvu dodavatele v textu transakce
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
           if (!inv.supplier_name) return false
-          const name = cleanStr(inv.supplier_name)
-          const words = name.split(' ').filter((w: string) => w.length >= 4)
-          // Aspoň jedno slovo z názvu dodavatele se musí vyskytovat v textu transakce
-          return words.some((w: string) => cleanText.includes(w))
+          const supplier = norm(inv.supplier_name)
+          const firstWord = supplier.split(' ').find((w: string) => w.length >= 5)
+          return firstWord ? txNorm.includes(firstWord) : false
         }) ?? null
       }
 
-      // 4. Slova z textu transakce v názvu dodavatele
+      // 4. Částka přesně ±1 Kč + datum splatnosti ±5 dní (obě podmínky nutné)
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
-          if (!inv.supplier_name) return false
-          const name = cleanStr(inv.supplier_name)
-          const txWords = cleanText.split(' ').filter((w: string) => w.length >= 4)
-          return txWords.some((w: string) => name.includes(w))
-        }) ?? null
-      }
-
-      // 5. Částka ±2 % (bez ohledu na datum — zaplacené faktury nemají due_date)
-      if (!matchedInvoice) {
-        matchedInvoice = pool.find(inv => {
-          const invAmount = Math.abs(inv.amount_czk ?? inv.amount ?? 0)
-          if (invAmount === 0) return false
-          return Math.abs(invAmount - txAmount) / invAmount <= 0.02
+          const invAmt = Math.abs(inv.amount_czk ?? inv.amount ?? 0)
+          if (Math.abs(invAmt - txAmount) > 1) return false
+          if (!inv.due_date) return false
+          const diffDays = Math.abs((txDate.getTime() - new Date(inv.due_date).getTime()) / 86400000)
+          return diffDays <= 5
         }) ?? null
       }
     } else {
