@@ -166,13 +166,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Ulož výsledky párování
+  let saved = 0
   for (const update of updates) {
     const { id, ...fields } = update
-    await supabase
+    const { error } = await supabase
       .from('bank_transactions')
       .update(fields)
       .eq('id', id)
+    if (!error) saved++
   }
 
-  return NextResponse.json({ matched, total: transactions.length })
+  return NextResponse.json({ matched: saved, attempted: matched, total: transactions.length })
 }

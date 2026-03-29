@@ -88,14 +88,28 @@ function parseFioCsv(text: string) {
     const amount = parseFloat(rawAmount) || 0
     if (date === '' || isNaN(amount)) continue
 
-    const fioId = col.id >= 0 ? cells[col.id]?.replace(/"/g, '') : null
+    const fioId = col.id >= 0 ? cells[col.id]?.replace(/"/g, '').trim() : null
     const vs = col.vs >= 0 ? cells[col.vs]?.replace(/"/g, '').trim() : null
     const counterpartyName = col.counterparty >= 0 ? cells[col.counterparty]?.replace(/"/g, '').trim() : null
     const counterpartyAccount = col.counterpartyAccount >= 0 ? cells[col.counterpartyAccount]?.replace(/"/g, '').trim() : null
-    const message = col.message >= 0 ? cells[col.message]?.replace(/"/g, '').trim() : null
+
+    // Vezmi první neprázdný textový sloupec (Zpráva, Poznámka, Komentář…)
+    const msgCols = headers
+      .map((h, idx) => ({ h, idx }))
+      .filter(({ h }) => h.includes('zpráva') || h.includes('poznámka') || h.includes('komentář') || h.includes('uživatelská'))
+    let message: string | null = null
+    for (const { idx } of msgCols) {
+      const val = cells[idx]?.replace(/"/g, '').trim()
+      if (val) { message = val; break }
+    }
+
+    // Stabilní fio_id: z ID pohybu pokud existuje, jinak z datum+částka+zpráva (deterministické, žádný random)
+    const stableFioId = fioId && fioId !== '0' && fioId !== ''
+      ? fioId
+      : `${date}__${amount}__${(message ?? counterpartyAccount ?? '').slice(0, 60)}`
 
     transactions.push({
-      fio_id: fioId || `${date}_${amount}_${Math.random().toString(36).slice(2, 8)}`,
+      fio_id: stableFioId,
       date,
       amount,
       currency: currency || 'CZK',
