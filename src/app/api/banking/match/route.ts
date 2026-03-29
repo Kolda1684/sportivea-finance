@@ -21,11 +21,10 @@ export async function POST(req: NextRequest) {
 
   if (invError) return NextResponse.json({ error: invError.message }, { status: 500 })
 
-  // Načti nákladové faktury
+  // Načti nákladové faktury (všechny — i zaplacené, abychom mohli spárovat transakce)
   const { data: expenseInvoices } = await supabase
     .from('expense_invoices')
     .select('id, supplier_name, amount_czk, amount, due_date, variable_symbol')
-    .eq('status', 'unpaid')
 
   let matched = 0
   const updates: { id: string; matched_invoice_id?: string; matched_expense_invoice_id?: string; status: string }[] = []
@@ -41,52 +40,60 @@ export async function POST(req: NextRequest) {
     if (isExpense) {
       // ── Párování výdajů s nákladovými fakturami ──
       const pool = expenseInvoices ?? []
-      const counterparty = (tx.counterparty_name ?? '').toLowerCase()
-      const msg = (tx.message ?? '').toLowerCase()
       const allText = [tx.counterparty_name, tx.message, tx.variable_symbol].filter(Boolean).join(' ').toLowerCase()
+      // Očisti text — odstraň interpunkci pro porovnání
+      const cleanText = allText.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ')
 
-      // 1. Variabilní symbol (přesná shoda)
-      if (tx.variable_symbol) {
-        const txVs = tx.variable_symbol.replace(/\s/g, '')
-        matchedInvoice = pool.find(inv =>
-          inv.variable_symbol && inv.variable_symbol.replace(/\s/g, '') === txVs
-        ) ?? null
+      function cleanStr(s: string) {
+        return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
       }
 
-      // 2. VS faktury se vyskytuje v poznámce nebo zprávě
+      // 1. Variabilní symbol — přesná nebo substring shoda
+      if (tx.variable_symbol) {
+        const txVs = tx.variable_symbol.replace(/\s/g, '')
+        matchedInvoice = pool.find(inv => {
+          if (!inv.variable_symbol) return false
+          const invVs = inv.variable_symbol.replace(/\s/g, '')
+          return invVs === txVs || invVs.includes(txVs) || txVs.includes(invVs)
+        }) ?? null
+      }
+
+      // 2. VS faktury se vyskytuje v textu transakce (message / poznámka)
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
           if (!inv.variable_symbol) return false
           const vs = inv.variable_symbol.replace(/\s/g, '')
-          return allText.includes(vs)
+          return vs.length >= 4 && allText.includes(vs)
         }) ?? null
       }
 
-      // 3. Jméno dodavatele v protistraně NEBO zprávě (obousměrně)
+      // 3. Jméno dodavatele v textu transakce (po vyčištění interpunkce)
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
           if (!inv.supplier_name) return false
-          const name = inv.supplier_name.toLowerCase()
-          // Slovo z dodavatele v textu transakce
-          const nameInText = name.split(/\s+/).some((w: string) => w.length >= 3 && allText.includes(w))
-          // Slovo z protistrany v názvu dodavatele
-          const textInName = counterparty.split(/\s+/).some((w: string) => w.length >= 3 && name.includes(w))
-          // Slovo ze zprávy v názvu dodavatele
-          const msgInName = msg.split(/\s+/).some((w: string) => w.length >= 4 && name.includes(w))
-          return nameInText || textInName || msgInName
+          const name = cleanStr(inv.supplier_name)
+          const words = name.split(' ').filter((w: string) => w.length >= 4)
+          // Aspoň jedno slovo z názvu dodavatele se musí vyskytovat v textu transakce
+          return words.some((w: string) => cleanText.includes(w))
         }) ?? null
       }
 
-      // 4. Částka ±2 % + datum ±30 dní (relaxed)
+      // 4. Slova z textu transakce v názvu dodavatele
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
-          const invAmount = inv.amount_czk ?? inv.amount ?? 0
+          if (!inv.supplier_name) return false
+          const name = cleanStr(inv.supplier_name)
+          const txWords = cleanText.split(' ').filter((w: string) => w.length >= 4)
+          return txWords.some((w: string) => name.includes(w))
+        }) ?? null
+      }
+
+      // 5. Částka ±2 % (bez ohledu na datum — zaplacené faktury nemají due_date)
+      if (!matchedInvoice) {
+        matchedInvoice = pool.find(inv => {
+          const invAmount = Math.abs(inv.amount_czk ?? inv.amount ?? 0)
           if (invAmount === 0) return false
-          const pctDiff = Math.abs(invAmount - txAmount) / invAmount
-          if (pctDiff > 0.02) return false
-          if (!inv.due_date) return true
-          const diffDays = Math.abs((txDate.getTime() - new Date(inv.due_date).getTime()) / 86400000)
-          return diffDays <= 30
+          return Math.abs(invAmount - txAmount) / invAmount <= 0.02
         }) ?? null
       }
     } else {
