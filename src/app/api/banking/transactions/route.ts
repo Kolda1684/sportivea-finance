@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('bank_transactions')
-    .select('*, invoices(number, subject_name)')
+    .select('*, invoices(number, subject_name), expense_invoices(supplier_name, variable_symbol)')
     .order('date', { ascending: false })
     .limit(200)
 

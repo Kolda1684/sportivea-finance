@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     .eq('status', 'unpaid')
 
   let matched = 0
-  const updates: { id: string; matched_invoice_id: string; status: string }[] = []
+  const updates: { id: string; matched_invoice_id?: string; matched_expense_invoice_id?: string; status: string }[] = []
 
   for (const tx of transactions) {
     let matchedInvoice = null
@@ -117,21 +117,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (matchedInvoice) {
-      updates.push({
-        id: tx.id,
-        matched_invoice_id: matchedInvoice.id,
-        status: 'matched',
-      })
+      updates.push(
+        isExpense
+          ? { id: tx.id, matched_expense_invoice_id: matchedInvoice.id, status: 'matched' }
+          : { id: tx.id, matched_invoice_id: matchedInvoice.id, status: 'matched' }
+      )
       matched++
     }
   }
 
   // Ulož výsledky párování
   for (const update of updates) {
+    const { id, ...fields } = update
     await supabase
       .from('bank_transactions')
-      .update({ status: update.status, matched_invoice_id: update.matched_invoice_id })
-      .eq('id', update.id)
+      .update(fields)
+      .eq('id', id)
   }
 
   return NextResponse.json({ matched, total: transactions.length })

@@ -24,6 +24,7 @@ interface Transaction {
   type: 'income' | 'expense'
   status: 'unmatched' | 'matched' | 'ignored'
   invoices?: { number: string; subject_name: string } | null
+  expense_invoices?: { supplier_name: string; variable_symbol: string } | null
 }
 
 interface ExpenseInvoice {
@@ -370,6 +371,11 @@ export default function BankingPage() {
                       <span className="flex items-center gap-1 text-green-700">
                         <Link2 className="h-3 w-3" />
                         {tx.invoices.number} · {tx.invoices.subject_name}
+                      </span>
+                    ) : tx.expense_invoices ? (
+                      <span className="flex items-center gap-1 text-orange-700">
+                        <Link2 className="h-3 w-3" />
+                        {tx.expense_invoices.supplier_name ?? tx.expense_invoices.variable_symbol ?? 'Náklad'}
                       </span>
                     ) : (
                       <span className="text-muted-foreground flex items-center gap-1">
