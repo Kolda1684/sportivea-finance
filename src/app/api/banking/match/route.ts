@@ -34,38 +34,59 @@ export async function POST(req: NextRequest) {
     let matchedInvoice = null
     const isExpense = tx.type === 'expense'
 
-    const searchText = [tx.counterparty_name, tx.message].filter(Boolean).join(' ').toLowerCase()
+    const searchText = [tx.counterparty_name, tx.message, tx.variable_symbol].filter(Boolean).join(' ').toLowerCase()
     const txAmount = Math.abs(tx.amount_czk ?? tx.amount)
     const txDate = new Date(tx.date)
 
     if (isExpense) {
       // ── Párování výdajů s nákladovými fakturami ──
       const pool = expenseInvoices ?? []
+      const counterparty = (tx.counterparty_name ?? '').toLowerCase()
+      const msg = (tx.message ?? '').toLowerCase()
+      const allText = [tx.counterparty_name, tx.message, tx.variable_symbol].filter(Boolean).join(' ').toLowerCase()
 
-      // 1. Variabilní symbol
+      // 1. Variabilní symbol (přesná shoda)
       if (tx.variable_symbol) {
+        const txVs = tx.variable_symbol.replace(/\s/g, '')
         matchedInvoice = pool.find(inv =>
-          inv.variable_symbol?.replace(/\s/g, '') === tx.variable_symbol.replace(/\s/g, '')
+          inv.variable_symbol && inv.variable_symbol.replace(/\s/g, '') === txVs
         ) ?? null
       }
 
-      // 2. Jméno dodavatele v protistraně nebo zprávě
-      if (!matchedInvoice && searchText) {
+      // 2. VS faktury se vyskytuje v poznámce nebo zprávě
+      if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
-          if (!inv.supplier_name) return false
-          const name = inv.supplier_name.toLowerCase()
-          return name.split(' ').some((w: string) => w.length >= 4 && searchText.includes(w))
+          if (!inv.variable_symbol) return false
+          const vs = inv.variable_symbol.replace(/\s/g, '')
+          return allText.includes(vs)
         }) ?? null
       }
 
-      // 3. Částka + datum splatnosti ±14 dní
+      // 3. Jméno dodavatele v protistraně NEBO zprávě (obousměrně)
+      if (!matchedInvoice) {
+        matchedInvoice = pool.find(inv => {
+          if (!inv.supplier_name) return false
+          const name = inv.supplier_name.toLowerCase()
+          // Slovo z dodavatele v textu transakce
+          const nameInText = name.split(/\s+/).some((w: string) => w.length >= 3 && allText.includes(w))
+          // Slovo z protistrany v názvu dodavatele
+          const textInName = counterparty.split(/\s+/).some((w: string) => w.length >= 3 && name.includes(w))
+          // Slovo ze zprávy v názvu dodavatele
+          const msgInName = msg.split(/\s+/).some((w: string) => w.length >= 4 && name.includes(w))
+          return nameInText || textInName || msgInName
+        }) ?? null
+      }
+
+      // 4. Částka ±2 % + datum ±30 dní (relaxed)
       if (!matchedInvoice) {
         matchedInvoice = pool.find(inv => {
           const invAmount = inv.amount_czk ?? inv.amount ?? 0
-          if (Math.abs(invAmount - txAmount) > 1) return false
+          if (invAmount === 0) return false
+          const pctDiff = Math.abs(invAmount - txAmount) / invAmount
+          if (pctDiff > 0.02) return false
           if (!inv.due_date) return true
           const diffDays = Math.abs((txDate.getTime() - new Date(inv.due_date).getTime()) / 86400000)
-          return diffDays <= 14
+          return diffDays <= 30
         }) ?? null
       }
     } else {
