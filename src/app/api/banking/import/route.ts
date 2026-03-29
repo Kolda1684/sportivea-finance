@@ -114,7 +114,7 @@ function parseFioCsv(text: string) {
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file') as File | null
-  const accountId = formData.get('account_id') as string | null
+  let accountId = formData.get('account_id') as string | null
   if (!file) return NextResponse.json({ error: 'Chybí soubor' }, { status: 400 })
 
   const text = await file.text()
@@ -122,6 +122,22 @@ export async function POST(req: NextRequest) {
 
   if (parsed.length === 0) {
     return NextResponse.json({ error: 'Nepodařilo se načíst žádné transakce. Zkontroluj formát CSV.' }, { status: 400 })
+  }
+
+  const supabase = createAdminSupabaseClient()
+
+  // Auto-detekce účtu z názvu souboru: Pohyby_na_uctu-XXXXXXXXXX_...
+  if (!accountId) {
+    const match = file.name.match(/Pohyby_na_uctu-(\d+)/i)
+    if (match) {
+      const accountNumber = match[1]
+      const { data: acc } = await supabase
+        .from('bank_accounts')
+        .select('id')
+        .eq('account_number', accountNumber)
+        .maybeSingle()
+      if (acc) accountId = acc.id
+    }
   }
 
   const rates = await getExchangeRates()
@@ -133,22 +149,21 @@ export async function POST(req: NextRequest) {
     ...(accountId ? { account_id: accountId } : {}),
   }))
 
-  const supabase = createAdminSupabaseClient()
   const { error } = await supabase
     .from('bank_transactions')
     .upsert(rows, { onConflict: 'fio_id', ignoreDuplicates: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Aktualizuj account_id pro již existující transakce (pokud ignoreDuplicates přeskočil)
+  // Přiřaď account_id i pro transakce které už existovaly (upsert je přeskočil)
   if (accountId) {
     const fioIds = rows.map(r => r.fio_id).filter(Boolean)
     await supabase
       .from('bank_transactions')
       .update({ account_id: accountId })
       .in('fio_id', fioIds)
-      .is('account_id', null)
   }
 
-  return NextResponse.json({ imported: rows.length, total: parsed.length })
+  const detectedAccount = accountId ? 'auto-detekováno' : 'bez účtu'
+  return NextResponse.json({ imported: rows.length, total: parsed.length, account: detectedAccount })
 }
