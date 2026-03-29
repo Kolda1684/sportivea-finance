@@ -114,6 +114,7 @@ function parseFioCsv(text: string) {
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file') as File | null
+  const accountId = formData.get('account_id') as string | null
   if (!file) return NextResponse.json({ error: 'Chybí soubor' }, { status: 400 })
 
   const text = await file.text()
@@ -123,13 +124,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nepodařilo se načíst žádné transakce. Zkontroluj formát CSV.' }, { status: 400 })
   }
 
-  // Získej kurzy
   const rates = await getExchangeRates()
 
   const rows = parsed.map(t => ({
     ...t,
     exchange_rate: rates[t.currency] ?? 1,
     amount_czk: t.amount * (rates[t.currency] ?? 1),
+    ...(accountId ? { account_id: accountId } : {}),
   }))
 
   const supabase = createAdminSupabaseClient()
@@ -138,6 +139,16 @@ export async function POST(req: NextRequest) {
     .upsert(rows, { onConflict: 'fio_id', ignoreDuplicates: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Aktualizuj account_id pro již existující transakce (pokud ignoreDuplicates přeskočil)
+  if (accountId) {
+    const fioIds = rows.map(r => r.fio_id).filter(Boolean)
+    await supabase
+      .from('bank_transactions')
+      .update({ account_id: accountId })
+      .in('fio_id', fioIds)
+      .is('account_id', null)
+  }
 
   return NextResponse.json({ imported: rows.length, total: parsed.length })
 }

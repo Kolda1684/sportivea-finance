@@ -46,17 +46,21 @@ const STATUS_BADGE = {
   ignored:   'bg-gray-100 text-gray-500',
 }
 
+interface BankAccount { id: string; name: string; account_number: string | null; starting_balance: number }
+
 // ─── CSV Import Banner ───────────────────────────────────────────────────────
-function CsvImportBanner({ onImported }: { onImported: () => void }) {
+function CsvImportBanner({ accounts, onImported }: { accounts: BankAccount[]; onImported: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<'idle' | 'uploading' | 'ok' | 'error'>('idle')
   const [message, setMessage] = useState('')
+  const [accountId, setAccountId] = useState<string>('')
 
   async function handleFile(file: File) {
     if (!file.name.endsWith('.csv')) { setStatus('error'); setMessage('Soubor musí být CSV'); return }
     setStatus('uploading')
     const form = new FormData()
     form.append('file', file)
+    if (accountId) form.append('account_id', accountId)
     try {
       const res = await fetch('/api/banking/import', { method: 'POST', body: form })
       const json = await res.json()
@@ -87,24 +91,41 @@ function CsvImportBanner({ onImported }: { onImported: () => void }) {
   )
 
   return (
-    <div
-      onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-      onDragOver={e => e.preventDefault()}
-      className="rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center hover:border-primary-900 hover:bg-primary-50 transition-colors cursor-pointer"
-      onClick={() => inputRef.current?.click()}
-    >
-      <input ref={inputRef} type="file" accept=".csv" className="hidden"
-        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
-      <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-      {status === 'uploading' ? (
-        <p className="text-sm text-gray-600 font-medium">Importuji…</p>
-      ) : (
-        <>
-          <p className="text-sm font-medium text-gray-700">Přetáhni CSV z Fio banky nebo klikni pro výběr</p>
-          <p className="text-xs text-gray-500 mt-1">Fio: Internetové bankovnictví → Pohyby → Exportovat → CSV</p>
-          <p className="text-xs text-gray-400 mt-0.5">Podporuje CZK, EUR, USD — kurzy se načítají automaticky</p>
-        </>
+    <div className="space-y-3">
+      {accounts.length > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Účet:</span>
+          <select
+            value={accountId}
+            onChange={e => setAccountId(e.target.value)}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-900"
+          >
+            <option value="">— nevybráno —</option>
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name}{a.account_number ? ` (${a.account_number})` : ''}</option>
+            ))}
+          </select>
+        </div>
       )}
+      <div
+        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+        onDragOver={e => e.preventDefault()}
+        className="rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center hover:border-primary-900 hover:bg-primary-50 transition-colors cursor-pointer"
+        onClick={() => inputRef.current?.click()}
+      >
+        <input ref={inputRef} type="file" accept=".csv" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+        <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+        {status === 'uploading' ? (
+          <p className="text-sm text-gray-600 font-medium">Importuji…</p>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-gray-700">Přetáhni CSV z Fio banky nebo klikni pro výběr</p>
+            <p className="text-xs text-gray-500 mt-1">Fio: Internetové bankovnictví → Pohyby → Exportovat → CSV</p>
+            <p className="text-xs text-gray-400 mt-0.5">Podporuje CZK, EUR, USD — kurzy se načítají automaticky</p>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -187,6 +208,7 @@ function AddExpenseInvoiceModal({ open, onClose, onSaved }: { open: boolean; onC
 export default function BankingPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [expenseInvoices, setExpenseInvoices] = useState<ExpenseInvoice[]>([])
+  const [accounts, setAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -194,6 +216,10 @@ export default function BankingPage() {
   const [matchMsg, setMatchMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
   const [syncingExpenses, setSyncingExpenses] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/banking/accounts').then(r => r.json()).then(d => setAccounts(Array.isArray(d) ? d : []))
+  }, [])
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true)
@@ -273,7 +299,7 @@ export default function BankingPage() {
       </div>
 
       {/* CSV Import */}
-      <CsvImportBanner onImported={fetchTransactions} />
+      <CsvImportBanner accounts={accounts} onImported={fetchTransactions} />
 
       {/* Match zpráva */}
       {matchMsg && (
