@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
     .from('expense_invoices')
     .select('id, supplier_name, amount_czk, amount, due_date, variable_symbol')
 
+  const cleanStr = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+
   let matched = 0
   const updates: { id: string; matched_invoice_id?: string; matched_expense_invoice_id?: string; status: string }[] = []
 
@@ -43,10 +46,6 @@ export async function POST(req: NextRequest) {
       const allText = [tx.counterparty_name, tx.message, tx.variable_symbol].filter(Boolean).join(' ').toLowerCase()
       // Očisti text — odstraň interpunkci pro porovnání
       const cleanText = allText.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ')
-
-      function cleanStr(s: string) {
-        return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-      }
 
       // 1. Variabilní symbol — přesná nebo substring shoda
       if (tx.variable_symbol) {
