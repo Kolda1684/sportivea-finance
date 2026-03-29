@@ -69,22 +69,25 @@ export async function POST() {
     return NextResponse.json({ imported: 0, total: 0, message: 'Žádné přijaté faktury nenalezeny' })
   }
 
-  const rows = allInvoices.map((inv: Record<string, unknown>) => ({
-    supplier_name: (inv.supplier_name as string) || (inv.subject_name as string) || (inv.description as string) || null,
-    amount: inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null),
-    amount_czk: inv.native_price ? parseFloat(inv.native_price as string) : (inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null)),
-    currency: (inv.currency as string) || 'CZK',
-    date: (inv.taxable_fulfillment_due as string) || (inv.issued_on as string) || null,
-    due_date: (inv.due_on as string) || null,
-    variable_symbol: (inv.variable_symbol as string) || null,
-    status: (inv.status as string) === 'paid' ? 'paid' : 'unpaid',
-    note: (inv.number as string) ? `Fakturoid #${inv.number}` : null,
-  }))
+  const rows = allInvoices
+    .filter((inv: Record<string, unknown>) => inv.id)
+    .map((inv: Record<string, unknown>) => ({
+      fakturoid_id: inv.id as number,
+      supplier_name: (inv.supplier_name as string) || (inv.subject_name as string) || (inv.description as string) || null,
+      amount: inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null),
+      amount_czk: inv.native_price ? parseFloat(inv.native_price as string) : (inv.price ? parseFloat(inv.price as string) : (inv.total ? parseFloat(inv.total as string) : null)),
+      currency: (inv.currency as string) || 'CZK',
+      date: (inv.taxable_fulfillment_due as string) || (inv.issued_on as string) || null,
+      due_date: (inv.due_on as string) || null,
+      variable_symbol: (inv.variable_symbol as string) || null,
+      status: (inv.status as string) === 'paid' ? 'paid' : 'unpaid',
+      note: (inv.number as string) ? `Fakturoid #${inv.number}` : null,
+    }))
 
   const supabase = createAdminSupabaseClient()
   const { error } = await supabase
     .from('expense_invoices')
-    .upsert(rows, { ignoreDuplicates: false })
+    .upsert(rows, { onConflict: 'fakturoid_id', ignoreDuplicates: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
