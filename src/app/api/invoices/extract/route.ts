@@ -12,7 +12,20 @@ export async function POST(req: NextRequest) {
   const base64 = Buffer.from(bytes).toString('base64')
 
   const isPdf = file.type === 'application/pdf'
-  const mediaType = isPdf ? 'application/pdf' : (file.type as 'image/jpeg' | 'image/png' | 'image/webp')
+
+  const fileBlock = isPdf
+    ? ({
+        type: 'document' as const,
+        source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: base64 },
+      })
+    : ({
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: (file.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+          data: base64,
+        },
+      })
 
   try {
     const message = await client.messages.create({
@@ -22,9 +35,7 @@ export async function POST(req: NextRequest) {
         {
           role: 'user',
           content: [
-            isPdf
-              ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } } as Parameters<typeof client.messages.create>[0]['messages'][0]['content'][0]
-              : { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+            fileBlock,
             {
               type: 'text',
               text: `Z tohoto dokumentu (faktura / účtenka) vyextrahuj následující údaje a vrať POUZE JSON bez jakéhokoliv dalšího textu:
