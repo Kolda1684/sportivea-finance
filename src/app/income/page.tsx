@@ -177,11 +177,27 @@ export default function IncomePage() {
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      {income.billed_to ? (
-                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', BILLED_TO_COLORS[income.billed_to] ?? 'bg-gray-100 text-gray-700')}>
-                          {income.billed_to}
-                        </span>
-                      ) : <span className="text-muted-foreground text-xs">—</span>}
+                      <select
+                        value={income.billed_to ?? ''}
+                        onChange={async (e) => {
+                          const billed_to = e.target.value || null
+                          setIncomes(prev => prev.map(i => i.id === income.id ? { ...i, billed_to } : i))
+                          await fetch(`/api/income/${income.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ billed_to }),
+                          })
+                        }}
+                        className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-semibold border-0 cursor-pointer appearance-none text-center',
+                          income.billed_to ? (BILLED_TO_COLORS[income.billed_to] ?? 'bg-gray-100 text-gray-700') : 'bg-gray-100 text-gray-400'
+                        )}
+                      >
+                        <option value="">—</option>
+                        <option value="Martin">Martin</option>
+                        <option value="Honza">Honza</option>
+                        <option value="Sportivea">Sportivea</option>
+                      </select>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {income.note ?? '—'}
