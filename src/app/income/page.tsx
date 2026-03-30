@@ -131,7 +131,7 @@ export default function IncomePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Klient', 'Projekt', 'Příjem', 'Datum', 'Status', 'Poznámka', ''].map(h => (
+                {['Klient', 'Projekt', 'Příjem', 'Datum', 'Status', 'Fakturujeme na', 'Poznámka', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     {h}
                   </th>
@@ -170,6 +170,9 @@ export default function IncomePage() {
                         <option value="zaplaceno">Zaplaceno</option>
                       </select>
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {income.billed_to ?? '—'}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {income.note ?? '—'}
                     </td>
@@ -200,7 +203,7 @@ export default function IncomePage() {
                 <tr>
                   <td colSpan={2} className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">CELKEM</td>
                   <td className="px-4 py-2.5 font-bold text-green-700 text-sm">{formatCZK(totalAmount)}</td>
-                  <td colSpan={4} />
+                  <td colSpan={5} />
                 </tr>
               </tfoot>
             )}

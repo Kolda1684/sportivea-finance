@@ -52,6 +52,7 @@ export function AddIncomeModal({ open, onClose, onSaved, editing }: AddIncomeMod
     status: 'cekame',
     note: '',
     month: getCurrentMonth(),
+    billed_to: '',
   })
 
   useEffect(() => {
@@ -64,9 +65,10 @@ export function AddIncomeModal({ open, onClose, onSaved, editing }: AddIncomeMod
         status: editing.status ?? 'cekame',
         note: editing.note ?? '',
         month: editing.month ?? getCurrentMonth(),
+        billed_to: editing.billed_to ?? '',
       })
     } else {
-      setForm({ client: '', project_name: '', amount: '', date: '', status: 'cekame', note: '', month: getCurrentMonth() })
+      setForm({ client: '', project_name: '', amount: '', date: '', status: 'cekame', note: '', month: getCurrentMonth(), billed_to: '' })
     }
   }, [editing])
 
@@ -160,6 +162,18 @@ export function AddIncomeModal({ open, onClose, onSaved, editing }: AddIncomeMod
                 <SelectItem value="potvrzeno">Potvrzeno</SelectItem>
                 <SelectItem value="vystaveno">Vystaveno</SelectItem>
                 <SelectItem value="zaplaceno">Zaplaceno</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Fakturujeme na</Label>
+            <Select value={form.billed_to} onValueChange={v => set('billed_to', v)}>
+              <SelectTrigger><SelectValue placeholder="Vybrat…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Martin">Martin</SelectItem>
+                <SelectItem value="Honza">Honza</SelectItem>
+                <SelectItem value="Sportivea">Sportivea</SelectItem>
               </SelectContent>
             </Select>
           </div>

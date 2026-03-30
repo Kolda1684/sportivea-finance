@@ -60,6 +60,7 @@ export interface Income {
   invoice_id: string | null
   note: string | null
   month: string | null
+  billed_to: string | null
   created_at: string
 }
 
