@@ -16,6 +16,7 @@ export interface FakturoidInvoice {
   subject?: { name?: string; full_name?: string }
   issued_on: string
   due_on: string
+  paid_on: string | null
   total: string
   subtotal: string | null
   native_total: string | null
@@ -92,6 +93,7 @@ export function mapFakturoidInvoiceToDb(inv: FakturoidInvoice) {
     subject_name: subjectName,
     issued_on: inv.issued_on,
     due_on: inv.due_on,
+    paid_on: inv.paid_on ?? null,
     total: parseFloat(inv.total),
     subtotal,
     currency: inv.currency,

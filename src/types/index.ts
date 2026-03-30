@@ -32,6 +32,7 @@ export interface Invoice {
   subject_name: string | null
   issued_on: string | null
   due_on: string | null
+  paid_on: string | null
   total: number | null
   currency: string
   status: string | null

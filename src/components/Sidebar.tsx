@@ -13,6 +13,7 @@ import {
   ChevronRight,
   LogOut,
   FileText,
+  Waves,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -46,6 +47,11 @@ const navItems = [
       { href: '/invoices',         label: 'Vydané (příjmy)' },
       { href: '/invoices/expense', label: 'Přijaté (náklady)' },
     ],
+  },
+  {
+    href: '/cashflow',
+    label: 'Cashflow',
+    icon: Waves,
   },
   {
     href: '/banking',
