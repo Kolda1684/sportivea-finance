@@ -274,7 +274,7 @@ export default function AllCostsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    {['Typ', 'Název', 'Klient / Člen', 'Datum', 'Částka'].map(h => (
+                    {['Typ', 'Název', 'Klient', 'Zaměstnanec', 'Datum', 'Částka'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         {h}
                       </th>
@@ -283,7 +283,7 @@ export default function AllCostsPage() {
                 </thead>
                 <tbody className="divide-y">
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Žádné záznamy</td></tr>
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Žádné záznamy</td></tr>
                   ) : filtered.map(row => (
                     <tr key={`${row.type}-${row.id}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-2.5">
@@ -295,9 +295,10 @@ export default function AllCostsPage() {
                         {row.name}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground text-xs">
-                        {row.client && <span className="block">{row.client}</span>}
-                        {row.team_member && <span className="block text-gray-400">{row.team_member}</span>}
-                        {!row.client && !row.team_member && '—'}
+                        {row.client ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">
+                        {row.team_member ?? '—'}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{row.date ? formatDate(row.date) : '—'}</td>
                       <td className="px-4 py-2.5 text-right font-bold text-red-600">{formatCZK(row.amount)}</td>
@@ -306,7 +307,7 @@ export default function AllCostsPage() {
                 </tbody>
                 <tfoot className="bg-gray-50 border-t">
                   <tr>
-                    <td colSpan={4} className="px-4 py-3 font-bold text-sm text-muted-foreground">
+                    <td colSpan={5} className="px-4 py-3 font-bold text-sm text-muted-foreground">
                       CELKEM {typeFilter !== 'all' && `(${typeFilter})`}
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-red-600 text-base">
