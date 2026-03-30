@@ -149,25 +149,24 @@ export default function IncomePage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(income.date)}</td>
                     <td className="px-4 py-3">
-                      <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', cfg.className)}>
-                        {cfg.label}
-                      </span>
+                      <select
+                        value={income.status}
+                        onChange={(e) => handleStatusChange(income.id, e.target.value as IncomeStatus)}
+                        className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-semibold border-0 cursor-pointer appearance-none text-center',
+                          cfg.className
+                        )}
+                      >
+                        <option value="cekame">Čekáme</option>
+                        <option value="potvrzeno">Potvrzeno</option>
+                        <option value="vystaveno">Vystaveno</option>
+                        <option value="zaplaceno">Zaplaceno</option>
+                      </select>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {income.note ?? '—'}
                     </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => {
-                          const statuses: IncomeStatus[] = ['cekame', 'potvrzeno', 'vystaveno', 'zaplaceno']
-                          const next = statuses[(statuses.indexOf(income.status) + 1) % statuses.length]
-                          handleStatusChange(income.id, next)
-                        }}
-                        className="text-xs text-primary-900 hover:underline"
-                      >
-                        Posunout
-                      </button>
-                    </td>
+                    <td />
                   </tr>
                 )
               })}
