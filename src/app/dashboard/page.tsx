@@ -3,7 +3,7 @@ import { getCurrentMonth, formatCZK, formatMonth, getLastNMonths, monthBounds } 
 import { KpiCard } from '@/components/dashboard/KpiCard'
 import { RevenueChart } from '@/components/dashboard/RevenueChart'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
-import { TrendingUp, TrendingDown, Wallet, FileText, AlertTriangle, Link2Off, Calendar, BarChart2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, FileText, AlertTriangle, Link2Off, Calendar } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { MonthlyData, ClientSummary, TeamMemberCostSummary } from '@/types'
 
@@ -160,86 +160,44 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
         </div>
       </div>
 
-      {/* YTD + Kvartál */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* YTD */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              Rok {month.split(',')[1]} – celkem (YTD, {d.ytd.months} měs.)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Příjmy</p>
-                <p className="text-lg font-bold text-green-700">{formatCZK(d.ytd.income)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Náklady</p>
-                <p className="text-lg font-bold text-red-600">{formatCZK(d.ytd.costs)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Zisk</p>
-                <p className={`text-lg font-bold ${d.ytd.profit >= 0 ? 'text-primary-900' : 'text-red-600'}`}>
-                  {formatCZK(d.ytd.profit)}
-                </p>
-              </div>
+      {/* YTD */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            Rok {month.split(',')[1]} – celkem (YTD, {d.ytd.months} měs.)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Příjmy</p>
+              <p className="text-lg font-bold text-green-700">{formatCZK(d.ytd.income)}</p>
             </div>
-            <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
-              {d.ytd.income > 0 && (
-                <div
-                  className="h-full bg-green-500 rounded-full"
-                  style={{ width: `${Math.min(100, (d.ytd.profit / d.ytd.income) * 100)}%` }}
-                />
-              )}
+            <div>
+              <p className="text-xs text-muted-foreground">Náklady</p>
+              <p className="text-lg font-bold text-red-600">{formatCZK(d.ytd.costs)}</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Marže: {d.ytd.income > 0 ? Math.round((d.ytd.profit / d.ytd.income) * 100) : 0} %
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Kvartál */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <BarChart2 className="h-4 w-4 text-muted-foreground" />
-              {d.quarter.label} – kvartální přehled
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Příjmy</p>
-                <p className="text-lg font-bold text-green-700">{formatCZK(d.quarter.income)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Náklady</p>
-                <p className="text-lg font-bold text-red-600">{formatCZK(d.quarter.costs)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Zisk</p>
-                <p className={`text-lg font-bold ${d.quarter.profit >= 0 ? 'text-primary-900' : 'text-red-600'}`}>
-                  {formatCZK(d.quarter.profit)}
-                </p>
-              </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Zisk</p>
+              <p className={`text-lg font-bold ${d.ytd.profit >= 0 ? 'text-primary-900' : 'text-red-600'}`}>
+                {formatCZK(d.ytd.profit)}
+              </p>
             </div>
-            <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
-              {d.quarter.income > 0 && (
-                <div
-                  className="h-full bg-green-500 rounded-full"
-                  style={{ width: `${Math.min(100, (d.quarter.profit / d.quarter.income) * 100)}%` }}
-                />
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Marže: {d.quarter.income > 0 ? Math.round((d.quarter.profit / d.quarter.income) * 100) : 0} %
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
+            {d.ytd.income > 0 && (
+              <div
+                className="h-full bg-green-500 rounded-full"
+                style={{ width: `${Math.min(100, (d.ytd.profit / d.ytd.income) * 100)}%` }}
+              />
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Marže: {d.ytd.income > 0 ? Math.round((d.ytd.profit / d.ytd.income) * 100) : 0} %
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Upozornění */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -262,9 +220,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           </CardContent>
         </Card>
       </div>
-
-      {/* Graf */}
-      <RevenueChart data={d.monthlyData.slice(-6)} />
 
       {/* Tabulky */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -322,7 +277,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
                   {d.teamCosts.map(m => (
                     <tr key={m.team_member}>
                       <td className="py-2 font-medium">{m.team_member}</td>
-                      <td className="py-2 text-right text-muted-foreground">{m.hours} h</td>
+                      <td className="py-2 text-right text-muted-foreground">{Math.round(m.hours * 100) / 100} h</td>
                       <td className="py-2 text-right text-red-600 font-medium">{formatCZK(m.total)}</td>
                     </tr>
                   ))}
@@ -332,6 +287,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           </CardContent>
         </Card>
       </div>
+
+      {/* Graf */}
+      <RevenueChart data={d.monthlyData.slice(-6)} />
     </div>
   )
 }
