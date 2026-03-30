@@ -45,6 +45,7 @@ const navItems = [
     children: [
       { href: '/invoices',         label: 'Vydané (příjmy)' },
       { href: '/invoices/expense', label: 'Přijaté (náklady)' },
+      { href: '/invoices/upload',  label: 'AI Upload faktury' },
     ],
   },
   {

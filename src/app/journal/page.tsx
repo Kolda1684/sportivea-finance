@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2 } from 'lucide-react'
+import { Settings2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -44,13 +44,20 @@ function entryLabel(e: JournalEntry): string {
   return e.variable_symbol ?? '—'
 }
 
-function AccountTable({ account, entries, year }: {
+function AccountTable({ account, entries, year, month }: {
   account: BankAccount
   entries: JournalEntry[]
   year: number
+  month: number | 'all'
 }) {
   const yearEntries = entries
-    .filter(e => e.account_id === account.id && new Date(e.date).getFullYear() === year)
+    .filter(e => {
+      const d = new Date(e.date)
+      if (e.account_id !== account.id) return false
+      if (d.getFullYear() !== year) return false
+      if (month !== 'all' && d.getMonth() + 1 !== month) return false
+      return true
+    })
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   let balance = account.starting_balance
@@ -226,6 +233,7 @@ export default function JournalPage() {
   const [accounts, setAccounts] = useState<BankAccount[]>([])
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [year, setYear] = useState(new Date().getFullYear())
+  const [month, setMonth] = useState<number | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
@@ -252,24 +260,45 @@ export default function JournalPage() {
 
   const activeAccount = accounts.find(a => a.id === activeAccountId) ?? accounts[0]
 
+  const MONTHS = [
+    'Leden','Únor','Březen','Duben','Květen','Červen',
+    'Červenec','Srpen','Září','Říjen','Listopad','Prosinec',
+  ]
+
+  function handleExport() {
+    const params = new URLSearchParams({ year: String(year) })
+    if (month !== 'all') params.set('month', String(month))
+    if (activeAccountId) params.set('account_id', activeAccountId)
+    window.location.href = `/api/journal/export?${params}`
+  }
+
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Finanční deník</h1>
           <p className="text-sm text-gray-500 mt-0.5">Pohyby na účtech · průběžný zůstatek</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Rok:</span>
-            <select
-              value={year}
-              onChange={e => setYear(Number(e.target.value))}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-900"
-            >
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={year}
+            onChange={e => setYear(Number(e.target.value))}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-900"
+          >
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select
+            value={month}
+            onChange={e => setMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-900"
+          >
+            <option value="all">Celý rok</option>
+            {MONTHS.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+          </select>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-1.5" />
+            Exportovat CSV
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="h-4 w-4 mr-1.5" />
             Nastavení účtů
@@ -309,7 +338,7 @@ export default function JournalPage() {
 
           {/* Tabulka aktivního účtu */}
           {activeAccount && (
-            <AccountTable account={activeAccount} entries={entries} year={year} />
+            <AccountTable account={activeAccount} entries={entries} year={year} month={month} />
           )}
         </div>
       )}
