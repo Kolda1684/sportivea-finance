@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ interface AddIncomeModalProps {
   open: boolean
   onClose: () => void
   onSaved: (income: Income) => void
+  editing?: Income | null
 }
 
 const KNOWN_CLIENTS = [
@@ -41,7 +42,7 @@ const KNOWN_CLIENTS = [
   'Jiný',
 ]
 
-export function AddIncomeModal({ open, onClose, onSaved }: AddIncomeModalProps) {
+export function AddIncomeModal({ open, onClose, onSaved, editing }: AddIncomeModalProps) {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
     client: '',
@@ -53,14 +54,32 @@ export function AddIncomeModal({ open, onClose, onSaved }: AddIncomeModalProps) 
     month: getCurrentMonth(),
   })
 
+  useEffect(() => {
+    if (editing) {
+      setForm({
+        client: editing.client ?? '',
+        project_name: editing.project_name ?? '',
+        amount: editing.amount != null ? String(editing.amount) : '',
+        date: editing.date ? editing.date.slice(0, 10) : '',
+        status: editing.status ?? 'cekame',
+        note: editing.note ?? '',
+        month: editing.month ?? getCurrentMonth(),
+      })
+    } else {
+      setForm({ client: '', project_name: '', amount: '', date: '', status: 'cekame', note: '', month: getCurrentMonth() })
+    }
+  }, [editing])
+
   const set = (key: string, value: string) => setForm(f => ({ ...f, [key]: value }))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     try {
-      const res = await fetch('/api/income', {
-        method: 'POST',
+      const url = editing ? `/api/income/${editing.id}` : '/api/income'
+      const method = editing ? 'PUT' : 'POST'
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
@@ -71,7 +90,6 @@ export function AddIncomeModal({ open, onClose, onSaved }: AddIncomeModalProps) 
       const saved: Income = await res.json()
       onSaved(saved)
       onClose()
-      setForm({ client: '', project_name: '', amount: '', date: '', status: 'cekame', note: '', month: getCurrentMonth() })
     } catch {
       alert('Nepodařilo se uložit příjem.')
     } finally {
@@ -83,7 +101,7 @@ export function AddIncomeModal({ open, onClose, onSaved }: AddIncomeModalProps) 
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Přidat příjem</DialogTitle>
+          <DialogTitle>{editing ? 'Upravit příjem' : 'Přidat příjem'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
@@ -159,7 +177,7 @@ export function AddIncomeModal({ open, onClose, onSaved }: AddIncomeModalProps) 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Zrušit</Button>
             <Button type="submit" disabled={loading || !form.client || !form.project_name}>
-              {loading ? 'Ukládám…' : 'Uložit'}
+              {loading ? 'Ukládám…' : editing ? 'Uložit změny' : 'Uložit'}
             </Button>
           </DialogFooter>
         </form>

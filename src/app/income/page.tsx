@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Table2, Columns } from 'lucide-react'
+import { Plus, Table2, Columns, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AddIncomeModal } from '@/components/income/AddIncomeModal'
@@ -26,6 +26,7 @@ export default function IncomePage() {
   const [month, setMonth] = useState(getCurrentMonth())
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [addOpen, setAddOpen] = useState(false)
+  const [editIncome, setEditIncome] = useState<Income | null>(null)
 
   const months = getLastNMonths(12)
 
@@ -40,6 +41,12 @@ export default function IncomePage() {
   }, [month, statusFilter])
 
   useEffect(() => { fetchIncomes() }, [fetchIncomes])
+
+  async function handleDelete(id: string) {
+    if (!confirm('Opravdu smazat tento příjem?')) return
+    setIncomes(prev => prev.filter(i => i.id !== id))
+    await fetch(`/api/income/${id}`, { method: 'DELETE' })
+  }
 
   async function handleStatusChange(id: string, status: IncomeStatus) {
     setIncomes(prev => prev.map(i => i.id === id ? { ...i, status } : i))
@@ -166,7 +173,24 @@ export default function IncomePage() {
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {income.note ?? '—'}
                     </td>
-                    <td />
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setEditIncome(income)}
+                          className="text-muted-foreground hover:text-gray-900 transition-colors"
+                          title="Upravit"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(income.id)}
+                          className="text-muted-foreground hover:text-red-600 transition-colors"
+                          title="Smazat"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -188,6 +212,12 @@ export default function IncomePage() {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onSaved={(income) => setIncomes(prev => [income, ...prev])}
+      />
+      <AddIncomeModal
+        open={!!editIncome}
+        editing={editIncome}
+        onClose={() => setEditIncome(null)}
+        onSaved={(updated) => setIncomes(prev => prev.map(i => i.id === updated.id ? updated : i))}
       />
     </div>
   )
