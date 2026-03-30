@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 
   // Průběžný zůstatek per účet (od starting_balance)
   const balances = new Map<string, number>()
-  for (const [id, acc] of accountMap) balances.set(id, acc.starting_balance ?? 0)
+  for (const [id, acc] of Array.from(accountMap)) balances.set(id, acc.starting_balance ?? 0)
 
   // Hlavička CSV (UTF-8 BOM)
   const BOM = '\uFEFF'
