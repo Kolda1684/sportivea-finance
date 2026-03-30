@@ -3,7 +3,7 @@ import { getCurrentMonth, formatCZK, formatMonth, getLastNMonths, monthBounds } 
 import { KpiCard } from '@/components/dashboard/KpiCard'
 import { RevenueChart } from '@/components/dashboard/RevenueChart'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
-import { TrendingUp, TrendingDown, Wallet, FileText, AlertTriangle, Link2Off, Calendar } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, FileText, AlertTriangle, Calendar } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { MonthlyData, ClientSummary, TeamMemberCostSummary } from '@/types'
 
@@ -46,7 +46,7 @@ async function getDashboardData(month: string) {
 
   const { from, to } = monthBounds(month)
 
-  const [incomeRes, varCostRes, fixedRes, extraRes, unpaidRes, invoicedRes, unmatchedRes, clientRes, memberRes] =
+  const [incomeRes, varCostRes, fixedRes, extraRes, unpaidRes, invoicedRes, clientRes, memberRes] =
     await Promise.all([
       supabase.from('income').select('amount').eq('month', month),
       supabase.from('variable_costs').select('price').eq('month', month),
@@ -54,7 +54,6 @@ async function getDashboardData(month: string) {
       supabase.from('extra_costs').select('amount').eq('month', month),
       supabase.from('invoices').select('total').not('status', 'eq', 'paid'),
       supabase.from('invoices').select('total').gte('issued_on', from).lte('issued_on', to),
-      supabase.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unmatched'),
       supabase.from('income').select('client, amount').eq('month', month),
       supabase.from('variable_costs').select('team_member, price, hours').eq('month', month),
     ])
@@ -115,7 +114,6 @@ async function getDashboardData(month: string) {
     invoicedAmount: invoicedRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0,
     unpaidCount: unpaidRes.data?.length ?? 0,
     unpaidSum: unpaidRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0,
-    unmatchedCount: unmatchedRes.count ?? 0,
     monthlyData,
     topClients, teamCosts,
     ytd: { income: ytdIncome, costs: ytdCosts, profit: ytdIncome - ytdCosts, months: ytdMonths.length },
@@ -200,7 +198,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       </Card>
 
       {/* Upozornění */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {d.unpaidCount > 0 && (
         <Card className="border-orange-200 bg-orange-50">
           <CardContent className="p-4 flex items-center gap-4">
             <AlertTriangle className="h-8 w-8 text-orange-500 flex-shrink-0" />
@@ -210,16 +208,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
             </div>
           </CardContent>
         </Card>
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardContent className="p-4 flex items-center gap-4">
-            <Link2Off className="h-8 w-8 text-yellow-600 flex-shrink-0" />
-            <div>
-              <p className="font-semibold text-yellow-900">{d.unmatchedCount} nespárovaných transakcí</p>
-              <p className="text-sm text-yellow-700">Bankovní centrum</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      )}
 
       {/* Tabulky */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

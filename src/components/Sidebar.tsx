@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   DollarSign,
   CreditCard,
-  Building2,
   BookOpen,
   TrendingDown,
   ChevronDown,
@@ -52,11 +51,6 @@ const navItems = [
     href: '/cashflow',
     label: 'Cashflow',
     icon: Waves,
-  },
-  {
-    href: '/banking',
-    label: 'Bankovní centrum',
-    icon: Building2,
   },
   {
     href: '/journal',
