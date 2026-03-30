@@ -8,7 +8,6 @@ import {
   CreditCard,
   Building2,
   BookOpen,
-  Settings,
   TrendingDown,
   ChevronDown,
   ChevronRight,
@@ -57,11 +56,6 @@ const navItems = [
     href: '/journal',
     label: 'Finanční deník',
     icon: BookOpen,
-  },
-  {
-    href: '/settings',
-    label: 'Nastavení',
-    icon: Settings,
   },
 ]
 
