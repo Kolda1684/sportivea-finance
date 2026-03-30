@@ -44,7 +44,7 @@ function entryLabel(e: JournalEntry): string {
   return e.variable_symbol ?? '—'
 }
 
-function AccountColumn({ account, entries, year }: {
+function AccountTable({ account, entries, year }: {
   account: BankAccount
   entries: JournalEntry[]
   year: number
@@ -68,84 +68,78 @@ function AccountColumn({ account, entries, year }: {
   const finalBalance = account.starting_balance + totalIncome - totalExpense
 
   return (
-    <div className="flex-1 min-w-[420px]">
-      <div className="bg-primary-900 text-white text-center text-xs font-semibold py-2 rounded-t-lg px-2">
-        {account.name}{account.account_number ? ` · ${account.account_number}` : ''}
-      </div>
-      <div className="border border-t-0 rounded-b-lg overflow-hidden">
-        <table className="w-full text-xs">
-          <thead className="bg-gray-100 border-b">
-            <tr>
-              <th className="px-1.5 py-2 text-left text-gray-500 w-6">#</th>
-              <th className="px-1.5 py-2 text-left text-gray-500 w-16">Datum</th>
-              <th className="px-1.5 py-2 text-left text-gray-500 w-20">Doklad/VS</th>
-              <th className="px-1.5 py-2 text-left text-gray-500">Popis</th>
-              <th className="px-1.5 py-2 text-right text-gray-500 w-20">Příjmy</th>
-              <th className="px-1.5 py-2 text-right text-gray-500 w-20">Výdaje</th>
-              <th className="px-1.5 py-2 text-right text-gray-500 w-24">Zůstatek</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {/* Počáteční stav */}
-            <tr className="bg-blue-50/60">
-              <td className="px-1.5 py-1.5 text-gray-400" />
-              <td className="px-1.5 py-1.5 text-gray-400" />
-              <td className="px-1.5 py-1.5 font-mono text-gray-400 text-center">x</td>
-              <td className="px-1.5 py-1.5 font-semibold text-gray-700">Počáteční stav</td>
-              <td className="px-1.5 py-1.5" />
-              <td className="px-1.5 py-1.5" />
-              <td className="px-1.5 py-1.5 text-right font-bold text-gray-900">{fmtCZK(account.starting_balance)}</td>
-            </tr>
+    <div className="border rounded-lg overflow-hidden">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-100 border-b">
+          <tr>
+            <th className="px-3 py-2 text-left text-gray-500 w-8">#</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-24">Datum</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-28">Doklad/VS</th>
+            <th className="px-3 py-2 text-left text-gray-500">Popis</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-28">Příjmy</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-28">Výdaje</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-32">Zůstatek</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          <tr className="bg-blue-50/60">
+            <td className="px-3 py-2 text-gray-400" />
+            <td className="px-3 py-2 text-gray-400" />
+            <td className="px-3 py-2 font-mono text-gray-400 text-center">x</td>
+            <td className="px-3 py-2 font-semibold text-gray-700">Počáteční stav</td>
+            <td className="px-3 py-2" />
+            <td className="px-3 py-2" />
+            <td className="px-3 py-2 text-right font-bold text-gray-900">{fmtCZK(account.starting_balance)}</td>
+          </tr>
 
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-2 py-8 text-center text-gray-400 text-xs">
-                  Žádné transakce pro rok {year}.<br />Importuj CSV a vyber tento účet.
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={7} className="px-3 py-12 text-center text-gray-400">
+                Žádné transakce pro rok {year}.<br />Importuj CSV a vyber tento účet.
+              </td>
+            </tr>
+          )}
+
+          {rows.map(r => {
+            const isTransfer = r.label.toLowerCase().includes('převod')
+            return (
+              <tr key={r.entry.id} className={cn(
+                'hover:bg-gray-50 transition-colors',
+                isTransfer && 'bg-blue-50/40 text-blue-800'
+              )}>
+                <td className="px-3 py-2 text-gray-400">{r.idx}</td>
+                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(r.entry.date)}</td>
+                <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[100px]" title={r.entry.variable_symbol ?? ''}>
+                  {r.entry.variable_symbol ?? '—'}
+                </td>
+                <td className="px-3 py-2 truncate" title={r.label}>{r.label}</td>
+                <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums">
+                  {r.income > 0 ? fmtCZK(r.income) : ''}
+                </td>
+                <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums">
+                  {r.expense > 0 ? fmtCZK(r.expense) : ''}
+                </td>
+                <td className={cn(
+                  'px-3 py-2 text-right font-medium tabular-nums',
+                  r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
+                )}>
+                  {fmtCZK(r.balance)}
                 </td>
               </tr>
-            )}
-
-            {rows.map(r => {
-              const isTransfer = r.label.toLowerCase().includes('převod')
-              return (
-                <tr key={r.entry.id} className={cn(
-                  'hover:bg-gray-50 transition-colors',
-                  isTransfer && 'bg-blue-50/40 text-blue-800'
-                )}>
-                  <td className="px-1.5 py-1.5 text-gray-400">{r.idx}</td>
-                  <td className="px-1.5 py-1.5 text-gray-500 whitespace-nowrap">{formatDate(r.entry.date)}</td>
-                  <td className="px-1.5 py-1.5 font-mono text-gray-400 truncate max-w-[80px]" title={r.entry.variable_symbol ?? ''}>
-                    {r.entry.variable_symbol ?? '—'}
-                  </td>
-                  <td className="px-1.5 py-1.5 truncate max-w-[160px]" title={r.label}>{r.label}</td>
-                  <td className="px-1.5 py-1.5 text-right text-green-700 font-medium tabular-nums">
-                    {r.income > 0 ? fmtCZK(r.income) : ''}
-                  </td>
-                  <td className="px-1.5 py-1.5 text-right text-red-600 font-medium tabular-nums">
-                    {r.expense > 0 ? fmtCZK(r.expense) : ''}
-                  </td>
-                  <td className={cn(
-                    'px-1.5 py-1.5 text-right font-medium tabular-nums',
-                    r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
-                  )}>
-                    {fmtCZK(r.balance)}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-              <tr>
-                <td colSpan={4} className="px-1.5 py-2 text-gray-700 text-xs">CELKEM {year}</td>
-                <td className="px-1.5 py-2 text-right text-green-700 tabular-nums">{fmtCZK(totalIncome)}</td>
-                <td className="px-1.5 py-2 text-right text-red-600 tabular-nums">{fmtCZK(totalExpense)}</td>
-                <td className="px-1.5 py-2 text-right text-gray-900 tabular-nums">{fmtCZK(finalBalance)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+            )
+          })}
+        </tbody>
+        {rows.length > 0 && (
+          <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+            <tr>
+              <td colSpan={4} className="px-3 py-2 text-gray-700 text-xs">CELKEM {year}</td>
+              <td className="px-3 py-2 text-right text-green-700 tabular-nums">{fmtCZK(totalIncome)}</td>
+              <td className="px-3 py-2 text-right text-red-600 tabular-nums">{fmtCZK(totalExpense)}</td>
+              <td className="px-3 py-2 text-right text-gray-900 tabular-nums">{fmtCZK(finalBalance)}</td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
     </div>
   )
 }
@@ -234,6 +228,7 @@ export default function JournalPage() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [loading, setLoading] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
 
   async function fetchData() {
     setLoading(true)
@@ -243,8 +238,10 @@ export default function JournalPage() {
     ])
     const accData = await accRes.json()
     const txData = await txRes.json()
-    setAccounts(Array.isArray(accData) ? accData : [])
+    const accs: BankAccount[] = Array.isArray(accData) ? accData : []
+    setAccounts(accs)
     setEntries(Array.isArray(txData) ? txData : [])
+    setActiveAccountId(prev => prev ?? accs[0]?.id ?? null)
     setLoading(false)
   }
 
@@ -252,6 +249,8 @@ export default function JournalPage() {
 
   const years = Array.from(new Set(entries.map(e => new Date(e.date).getFullYear()))).sort((a, b) => b - a)
   if (years.length === 0) years.push(new Date().getFullYear())
+
+  const activeAccount = accounts.find(a => a.id === activeAccountId) ?? accounts[0]
 
   return (
     <div className="p-6 space-y-4">
@@ -286,10 +285,32 @@ export default function JournalPage() {
           <p className="text-sm mt-1">Nejdřív spusť SQL pro vytvoření tabulky bank_accounts.</p>
         </div>
       ) : (
-        <div className="flex gap-4 items-start overflow-x-auto pb-4">
-          {accounts.map(account => (
-            <AccountColumn key={account.id} account={account} entries={entries} year={year} />
-          ))}
+        <div className="space-y-4">
+          {/* Tab přepínač účtů */}
+          <div className="flex gap-2">
+            {accounts.map(account => (
+              <button
+                key={account.id}
+                onClick={() => setActiveAccountId(account.id)}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-colors border',
+                  activeAccountId === account.id
+                    ? 'bg-primary-900 text-white border-primary-900'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-primary-900 hover:text-primary-900'
+                )}
+              >
+                {account.name}
+                {account.account_number && (
+                  <span className="ml-1.5 opacity-60 font-normal">· {account.account_number}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Tabulka aktivního účtu */}
+          {activeAccount && (
+            <AccountTable account={activeAccount} entries={entries} year={year} />
+          )}
         </div>
       )}
 
