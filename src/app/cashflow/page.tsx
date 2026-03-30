@@ -2,10 +2,9 @@ import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getCurrentMonth, formatCZK, formatDate, formatMonth, getLastNMonths, monthBounds } from '@/lib/utils'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { TrendingUp, TrendingDown, Clock, Banknote, AlertCircle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Clock, Banknote, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// Statusy = peníze ještě nepřišly (manažerské, ne cash)
 const PENDING_STATUSES = ['cekame', 'potvrzeno', 'vystaveno']
 
 const STATUS_LABEL: Record<string, string> = {
@@ -24,38 +23,51 @@ async function getCashflowData(month: string) {
   const supabase = createAdminSupabaseClient()
   const { from, to } = monthBounds(month)
 
-  const [paidIncomeRes, pendingIncomeRes, varRes, fixedRes, extraRes] = await Promise.all([
-    // Skutečně zaplaceno tento měsíc (cash IN)
-    supabase.from('income').select('amount, client, project_name, date').eq('month', month).eq('status', 'zaplaceno'),
-    // Čeká na zaplacení (všechny měsíce – pohledávky)
+  const [
+    fakturoidPaidRes,   // faktury zaplacené ve Fakturoidu (paid_on v daném měsíci)
+    manualPaidRes,      // příjmy ručně označené jako zaplaceno
+    pendingIncomeRes,   // pohledávky (income čeká na zaplacení)
+    varRes, fixedRes, extraRes,
+  ] = await Promise.all([
+    supabase.from('invoices').select('number, subject_name, total, paid_on').eq('status', 'paid').gte('paid_on', from).lte('paid_on', to),
+    supabase.from('income').select('amount, client, project_name').eq('month', month).eq('status', 'zaplaceno'),
     supabase.from('income').select('id, amount, client, project_name, date, status, month').in('status', PENDING_STATUSES).order('date', { ascending: false }),
-    // Náklady tento měsíc
     supabase.from('variable_costs').select('price').eq('month', month),
     supabase.from('fixed_costs').select('amount').eq('active', true),
     supabase.from('extra_costs').select('amount').eq('month', month),
   ])
 
-  const cashIn = paidIncomeRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
+  const fakturoidCashIn = fakturoidPaidRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
+  const manualCashIn = manualPaidRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
+
+  // Použij Fakturoid jako primární zdroj; pokud není žádná data, fall-back na ruční
+  const hasFakturoidData = (fakturoidPaidRes.data?.length ?? 0) > 0
+  const cashIn = hasFakturoidData ? fakturoidCashIn : manualCashIn
+
   const cashOut = (varRes.data?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0)
     + (fixedRes.data?.reduce((s, r) => s + r.amount, 0) ?? 0)
     + (extraRes.data?.reduce((s, r) => s + r.amount, 0) ?? 0)
 
   const pendingTotal = pendingIncomeRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
 
-  // Trend posledních 6 měsíců
+  // Trend posledních 6 měsíců — preferuje Fakturoid paid_on, jinak income.zaplaceno
   const last6 = getLastNMonths(6)
   const trend = await Promise.all(last6.map(async (m) => {
-    const [inc, costs, fix, ext] = await Promise.all([
+    const { from: mFrom, to: mTo } = monthBounds(m)
+    const [fPaid, mPaid, costs, fix, ext] = await Promise.all([
+      supabase.from('invoices').select('total').eq('status', 'paid').gte('paid_on', mFrom).lte('paid_on', mTo),
       supabase.from('income').select('amount').eq('month', m).eq('status', 'zaplaceno'),
       supabase.from('variable_costs').select('price').eq('month', m),
       supabase.from('fixed_costs').select('amount').eq('active', true),
       supabase.from('extra_costs').select('amount').eq('month', m),
     ])
-    const income = inc.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
+    const fTotal = fPaid.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
+    const mTotal = mPaid.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
+    const income = fTotal > 0 ? fTotal : mTotal
     const expense = (costs.data?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0)
       + (fix.data?.reduce((s, r) => s + r.amount, 0) ?? 0)
       + (ext.data?.reduce((s, r) => s + r.amount, 0) ?? 0)
-    return { month: m, income, expense, net: income - expense }
+    return { month: m, income, fTotal, mTotal, expense, net: income - expense }
   }))
 
   return {
@@ -64,6 +76,9 @@ async function getCashflowData(month: string) {
     net: cashIn - cashOut,
     pendingTotal,
     pendingItems: pendingIncomeRes.data ?? [],
+    fakturoidItems: fakturoidPaidRes.data ?? [],
+    manualItems: manualPaidRes.data ?? [],
+    hasFakturoidData,
     trend,
   }
 }
@@ -72,7 +87,6 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
   const month = searchParams.month ?? getCurrentMonth()
   const d = await getCashflowData(month)
   const monthLabel = formatMonth(month).charAt(0).toUpperCase() + formatMonth(month).slice(1)
-
   const maxTrend = Math.max(...d.trend.map(t => Math.max(t.income, t.expense)), 1)
 
   return (
@@ -81,7 +95,7 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cashflow</h1>
-          <p className="text-sm text-gray-500 mt-1">Skutečné peněžní toky — kdy peníze přišly, ne kdy vznikl nárok</p>
+          <p className="text-sm text-gray-500 mt-1">Skutečné peněžní toky — kdy peníze přišly na účet, ne kdy vznikl nárok</p>
         </div>
         <MonthSelectorClient currentMonth={month} />
       </div>
@@ -95,7 +109,10 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
                 <TrendingUp className="h-5 w-5 text-green-700" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Přijato ({monthLabel})</p>
+                <p className="text-xs text-muted-foreground">
+                  Přijato — {monthLabel}
+                  {d.hasFakturoidData && <span className="ml-1 text-blue-500">(Fakturoid)</span>}
+                </p>
                 <p className="text-xl font-bold text-green-700">{formatCZK(d.cashIn)}</p>
               </div>
             </div>
@@ -109,7 +126,7 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
                 <TrendingDown className="h-5 w-5 text-red-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Vydáno ({monthLabel})</p>
+                <p className="text-xs text-muted-foreground">Vydáno — {monthLabel}</p>
                 <p className="text-xl font-bold text-red-600">{formatCZK(d.cashOut)}</p>
               </div>
             </div>
@@ -148,32 +165,119 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
         </Card>
       </div>
 
-      {/* Cashflow info */}
-      <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 flex gap-3 text-sm text-blue-800">
-        <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-500" />
-        <div>
-          <strong>Jak číst cashflow:</strong> Příjmy se počítají pouze když jsou označeny jako <em>Zaplaceno</em> v sekci Příjmy & Projekty.
-          Pohledávky jsou fakturované částky, které ještě nedorazily na účet.
-        </div>
+      {/* Zdroje cash-in vedle sebe */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Fakturoid zaplacené faktury */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-blue-500" />
+              Zaplaceno přes Fakturoid — {monthLabel}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {d.fakturoidItems.length === 0 ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-sm text-muted-foreground">Žádné faktury s datem zaplacení v tomto měsíci.</p>
+                <p className="text-xs text-muted-foreground">Spusť sync Fakturoidu aby se data aktualizovala.</p>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="pb-2 text-left">Č. faktury</th>
+                    <th className="pb-2 text-left">Klient</th>
+                    <th className="pb-2 text-left">Zaplaceno</th>
+                    <th className="pb-2 text-right">Částka</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {d.fakturoidItems.map((inv, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="py-2 text-muted-foreground text-xs font-mono">{inv.number ?? '—'}</td>
+                      <td className="py-2 font-medium text-xs">{inv.subject_name ?? '—'}</td>
+                      <td className="py-2 text-muted-foreground text-xs">{inv.paid_on ? formatDate(inv.paid_on) : '—'}</td>
+                      <td className="py-2 text-right font-bold text-green-700">{formatCZK(inv.total ?? 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t bg-gray-50">
+                  <tr>
+                    <td colSpan={3} className="py-2 text-xs font-semibold text-muted-foreground">CELKEM</td>
+                    <td className="py-2 text-right font-bold text-green-700">
+                      {formatCZK(d.fakturoidItems.reduce((s, r) => s + (r.total ?? 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Ručně označené jako zaplaceno */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-green-600" />
+              Ručně označeno zaplaceno — {monthLabel}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {d.manualItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                Žádné příjmy označené jako Zaplaceno v tomto měsíci.
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="pb-2 text-left">Klient</th>
+                    <th className="pb-2 text-left">Projekt</th>
+                    <th className="pb-2 text-right">Částka</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {d.manualItems.map((item, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="py-2 font-medium">{item.client}</td>
+                      <td className="py-2 text-muted-foreground text-xs">{item.project_name}</td>
+                      <td className="py-2 text-right font-bold text-green-700">{formatCZK(item.amount ?? 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t bg-gray-50">
+                  <tr>
+                    <td colSpan={2} className="py-2 text-xs font-semibold text-muted-foreground">CELKEM</td>
+                    <td className="py-2 text-right font-bold text-green-700">
+                      {formatCZK(d.manualItems.reduce((s, r) => s + (r.amount ?? 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Trend graf — posledních 6 měsíců */}
+      {/* Trend graf */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Trend — posledních 6 měsíců</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {d.trend.map((t) => {
-              const mLabel = formatMonth(t.month).slice(0, 3)
+              const mLabel = formatMonth(t.month)
               const incWidth = Math.round((t.income / maxTrend) * 100)
               const expWidth = Math.round((t.expense / maxTrend) * 100)
               const isCurrentMonth = t.month === month
+              const sourceNote = t.fTotal > 0 ? 'Fakturoid' : t.mTotal > 0 ? 'ruční' : null
               return (
-                <div key={t.month} className={cn('space-y-1', isCurrentMonth && 'font-medium')}>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className={isCurrentMonth ? 'text-gray-900 font-semibold' : ''}>
-                      {mLabel.charAt(0).toUpperCase() + mLabel.slice(1)} {t.month.split(',')[1]}
+                <div key={t.month} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className={cn('text-muted-foreground', isCurrentMonth && 'text-gray-900 font-semibold')}>
+                      {mLabel.charAt(0).toUpperCase() + mLabel.slice(1)}
+                      {sourceNote && <span className="ml-1 text-gray-400">({sourceNote})</span>}
                     </span>
                     <span className={cn('font-medium', t.net >= 0 ? 'text-green-700' : 'text-red-600')}>
                       {t.net >= 0 ? '+' : ''}{formatCZK(t.net)}
@@ -181,10 +285,10 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
                   </div>
                   <div className="flex gap-1 h-2">
                     <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${incWidth}%` }} />
+                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${incWidth}%` }} />
                     </div>
                     <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-red-400 rounded-full transition-all" style={{ width: `${expWidth}%` }} />
+                      <div className="h-full bg-red-400 rounded-full" style={{ width: `${expWidth}%` }} />
                     </div>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
@@ -202,7 +306,7 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
         </CardContent>
       </Card>
 
-      {/* Pohledávky — čeká na zaplacení */}
+      {/* Pohledávky */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
