@@ -19,6 +19,12 @@ const STATUS_BADGE: Record<IncomeStatus, string> = {
   zaplaceno: 'success',
 }
 
+const BILLED_TO_COLORS: Record<string, string> = {
+  Martin:    'bg-blue-100 text-blue-800',
+  Honza:     'bg-orange-100 text-orange-800',
+  Sportivea: 'bg-green-100 text-green-800',
+}
+
 export default function IncomePage() {
   const [view, setView] = useState<'table' | 'kanban'>('table')
   const [incomes, setIncomes] = useState<Income[]>([])
@@ -170,8 +176,12 @@ export default function IncomePage() {
                         <option value="zaplaceno">Zaplaceno</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {income.billed_to ?? '—'}
+                    <td className="px-4 py-3">
+                      {income.billed_to ? (
+                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', BILLED_TO_COLORS[income.billed_to] ?? 'bg-gray-100 text-gray-700')}>
+                          {income.billed_to}
+                        </span>
+                      ) : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {income.note ?? '—'}
