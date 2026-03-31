@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2, Download, RefreshCw, Pencil } from 'lucide-react'
+import { Settings2, Download, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -134,38 +134,36 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
   return (
     <>
       <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-xs">
-          <thead className="bg-gray-100 border-b">
+        <table className="w-full text-xs border-collapse">
+          <thead className="bg-gray-100">
             <tr>
-              <th className="px-3 py-2 text-left text-gray-500 w-8">#</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-24">Datum</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-20">Doklad</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-24">VS</th>
-              <th className="px-3 py-2 text-left text-gray-500">Popis</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-36">Protiúčet</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-28">Příjmy</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-28">Výdaje</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-32">Zůstatek</th>
-              <th className="px-3 py-2 w-8" />
+              <th className="px-3 py-2 text-left text-gray-500 w-8 border border-gray-200">#</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Datum</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-20 border border-gray-200">Doklad</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">VS</th>
+              <th className="px-3 py-2 text-left text-gray-500 border border-gray-200">Popis</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-36 border border-gray-200">Protiúčet</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Příjmy</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Výdaje</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-32 border border-gray-200">Zůstatek</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody>
             <tr className="bg-blue-50/60">
-              <td className="px-3 py-2 text-gray-400" />
-              <td className="px-3 py-2 text-gray-400" />
-              <td className="px-3 py-2 font-mono text-gray-400 text-center">x</td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 font-semibold text-gray-700">Počáteční stav</td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 text-right font-bold text-gray-900">{fmtCZK(account.starting_balance)}</td>
-              <td className="px-3 py-2" />
+              <td className="px-3 py-2 text-gray-400 border border-gray-200" />
+              <td className="px-3 py-2 text-gray-400 border border-gray-200" />
+              <td className="px-3 py-2 font-mono text-gray-400 text-center border border-gray-200">x</td>
+              <td className="px-3 py-2 border border-gray-200" />
+              <td className="px-3 py-2 font-semibold text-gray-700 border border-gray-200">Počáteční stav</td>
+              <td className="px-3 py-2 border border-gray-200" />
+              <td className="px-3 py-2 border border-gray-200" />
+              <td className="px-3 py-2 border border-gray-200" />
+              <td className="px-3 py-2 text-right font-bold text-gray-900 border border-gray-200">{fmtCZK(account.starting_balance)}</td>
             </tr>
 
             {rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-3 py-12 text-center text-gray-400">
+                <td colSpan={9} className="px-3 py-12 text-center text-gray-400 border border-gray-200">
                   Žádné transakce pro rok {year}.<br />Synchronizuj FIO nebo importuj CSV.
                 </td>
               </tr>
@@ -176,54 +174,49 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
               const docNumber = entryDocNumber(r.entry)
               const counterparty = entryCounterparty(r.entry, r.description)
               return (
-                <tr key={r.entry.id} className={cn(
-                  'hover:bg-gray-50 transition-colors group',
-                  isTransfer && 'bg-blue-50/40 text-blue-800'
-                )}>
-                  <td className="px-3 py-2 text-gray-400">{r.idx}</td>
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(r.entry.date)}</td>
-                  <td className="px-3 py-2 font-mono text-gray-500 truncate max-w-[80px]" title={docNumber}>
+                <tr
+                  key={r.entry.id}
+                  onClick={() => setEditing(r.entry)}
+                  className={cn(
+                    'hover:bg-blue-50/50 cursor-pointer transition-colors',
+                    isTransfer && 'bg-blue-50/40 text-blue-800'
+                  )}
+                >
+                  <td className="px-3 py-2 text-gray-400 border border-gray-200">{r.idx}</td>
+                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap border border-gray-200">{formatDate(r.entry.date)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-500 truncate max-w-[80px] border border-gray-200" title={docNumber}>
                     {docNumber || '—'}
                   </td>
-                  <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[96px]" title={r.entry.variable_symbol ?? ''}>
+                  <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[96px] border border-gray-200" title={r.entry.variable_symbol ?? ''}>
                     {r.entry.variable_symbol ?? '—'}
                   </td>
-                  <td className="px-3 py-2 truncate max-w-[200px]" title={r.description}>{r.description}</td>
-                  <td className="px-3 py-2 truncate max-w-[144px] text-gray-500" title={counterparty}>
+                  <td className="px-3 py-2 truncate max-w-[200px] border border-gray-200" title={r.description}>{r.description}</td>
+                  <td className="px-3 py-2 truncate max-w-[144px] text-gray-500 border border-gray-200" title={counterparty}>
                     {counterparty}
                   </td>
-                  <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums">
+                  <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums border border-gray-200">
                     {r.income > 0 ? fmtCZK(r.income) : ''}
                   </td>
-                  <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums">
+                  <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums border border-gray-200">
                     {r.expense > 0 ? fmtCZK(r.expense) : ''}
                   </td>
                   <td className={cn(
-                    'px-3 py-2 text-right font-medium tabular-nums',
+                    'px-3 py-2 text-right font-medium tabular-nums border border-gray-200',
                     r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
                   )}>
                     {fmtCZK(r.balance)}
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <button
-                      onClick={() => setEditing(r.entry)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-700 transition-opacity"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
                   </td>
                 </tr>
               )
             })}
           </tbody>
           {rows.length > 0 && (
-            <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+            <tfoot className="bg-gray-50 font-semibold">
               <tr>
-                <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs">CELKEM {year}</td>
-                <td className="px-3 py-2 text-right text-green-700 tabular-nums">{fmtCZK(totalIncome)}</td>
-                <td className="px-3 py-2 text-right text-red-600 tabular-nums">{fmtCZK(totalExpense)}</td>
-                <td className="px-3 py-2 text-right text-gray-900 tabular-nums">{fmtCZK(finalBalance)}</td>
-                <td className="px-3 py-2" />
+                <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
+                <td className="px-3 py-2 text-right text-green-700 tabular-nums border border-gray-300">{fmtCZK(totalIncome)}</td>
+                <td className="px-3 py-2 text-right text-red-600 tabular-nums border border-gray-300">{fmtCZK(totalExpense)}</td>
+                <td className="px-3 py-2 text-right text-gray-900 tabular-nums border border-gray-300">{fmtCZK(finalBalance)}</td>
               </tr>
             </tfoot>
           )}
