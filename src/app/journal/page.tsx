@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2, Download, RefreshCw } from 'lucide-react'
+import { Settings2, Download, RefreshCw, GitMerge } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -344,6 +344,7 @@ export default function JournalPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [matching, setMatching] = useState(false)
 
   async function fetchData() {
     setLoading(true)
@@ -371,6 +372,21 @@ export default function JournalPage() {
     'Leden','Únor','Březen','Duben','Květen','Červen',
     'Červenec','Srpen','Září','Říjen','Listopad','Prosinec',
   ]
+
+  async function handleMatch() {
+    setMatching(true)
+    try {
+      const res = await fetch('/api/banking/match', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Chyba párování')
+      alert(`Párování dokončeno:\n✓ Auto: ${data.auto}\n⚠ Ke kontrole: ${data.suggest}\n! Manuální: ${data.manual}`)
+      await fetchData()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Chyba párování')
+    } finally {
+      setMatching(false)
+    }
+  }
 
   async function handleSync() {
     setSyncing(true)
@@ -420,6 +436,10 @@ export default function JournalPage() {
             <option value="all">Celý rok</option>
             {MONTHS.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
           </select>
+          <Button variant="outline" size="sm" onClick={handleMatch} disabled={matching}>
+            <GitMerge className={cn('h-4 w-4 mr-1.5', matching && 'animate-pulse')} />
+            {matching ? 'Páruji…' : 'Spárovat faktury'}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
             <RefreshCw className={cn('h-4 w-4 mr-1.5', syncing && 'animate-spin')} />
             {syncing ? 'Synchronizuji…' : 'Synchronizovat FIO'}
