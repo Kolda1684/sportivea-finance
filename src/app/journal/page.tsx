@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2, Download, RefreshCw } from 'lucide-react'
+import { Settings2, Download, RefreshCw, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,7 @@ interface JournalEntry {
   amount_czk: number
   currency: string
   counterparty_name: string | null
+  counterparty_account: string | null
   variable_symbol: string | null
   message: string | null
   type: 'income' | 'expense'
@@ -36,7 +37,7 @@ function fmtCZK(n: number) {
   return n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function entryLabel(e: JournalEntry): string {
+function entryDescription(e: JournalEntry): string {
   if (e.invoices) return `${e.invoices.number} · ${e.invoices.subject_name}`
   if (e.expense_invoices?.supplier_name) return e.expense_invoices.supplier_name
   if (e.counterparty_name) return e.counterparty_name
@@ -44,12 +45,67 @@ function entryLabel(e: JournalEntry): string {
   return e.variable_symbol ?? '—'
 }
 
-function AccountTable({ account, entries, year, month }: {
+function entryCounterparty(e: JournalEntry, description: string): string {
+  return e.counterparty_name ?? description
+}
+
+function entryDocNumber(e: JournalEntry): string {
+  return e.invoices?.number ?? ''
+}
+
+function EditTransactionModal({ entry, onSaved, onClose }: {
+  entry: JournalEntry
+  onSaved: () => void
+  onClose: () => void
+}) {
+  const [counterparty, setCounterparty] = useState(entry.counterparty_name ?? '')
+  const [message, setMessage] = useState(entry.message ?? '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await fetch(`/api/banking/transactions/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ counterparty_name: counterparty || null, message: message || null }),
+    })
+    setSaving(false)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Upravit transakci</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label>Protiúčet / název</Label>
+            <Input value={counterparty} onChange={e => setCounterparty(e.target.value)} placeholder="Název protistrany" />
+          </div>
+          <div className="space-y-1">
+            <Label>Popis / zpráva</Label>
+            <Input value={message} onChange={e => setMessage(e.target.value)} placeholder="Popis transakce" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Zrušit</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving ? 'Ukládám…' : 'Uložit'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AccountTable({ account, entries, year, month, onRefresh }: {
   account: BankAccount
   entries: JournalEntry[]
   year: number
   month: number | 'all'
+  onRefresh: () => void
 }) {
+  const [editing, setEditing] = useState<JournalEntry | null>(null)
+
   const yearEntries = entries
     .filter(e => {
       const d = new Date(e.date)
@@ -67,7 +123,8 @@ function AccountTable({ account, entries, year, month }: {
     const income = isIncome ? czk : 0
     const expense = isIncome ? 0 : czk
     balance += isIncome ? czk : -czk
-    return { entry, income, expense, balance, label: entryLabel(entry), idx: i + 1 }
+    const description = entryDescription(entry)
+    return { entry, income, expense, balance, description, idx: i + 1 }
   })
 
   const totalIncome = rows.reduce((s, r) => s + r.income, 0)
@@ -75,79 +132,112 @@ function AccountTable({ account, entries, year, month }: {
   const finalBalance = account.starting_balance + totalIncome - totalExpense
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <table className="w-full text-xs">
-        <thead className="bg-gray-100 border-b">
-          <tr>
-            <th className="px-3 py-2 text-left text-gray-500 w-8">#</th>
-            <th className="px-3 py-2 text-left text-gray-500 w-24">Datum</th>
-            <th className="px-3 py-2 text-left text-gray-500 w-28">Doklad/VS</th>
-            <th className="px-3 py-2 text-left text-gray-500">Popis</th>
-            <th className="px-3 py-2 text-right text-gray-500 w-28">Příjmy</th>
-            <th className="px-3 py-2 text-right text-gray-500 w-28">Výdaje</th>
-            <th className="px-3 py-2 text-right text-gray-500 w-32">Zůstatek</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          <tr className="bg-blue-50/60">
-            <td className="px-3 py-2 text-gray-400" />
-            <td className="px-3 py-2 text-gray-400" />
-            <td className="px-3 py-2 font-mono text-gray-400 text-center">x</td>
-            <td className="px-3 py-2 font-semibold text-gray-700">Počáteční stav</td>
-            <td className="px-3 py-2" />
-            <td className="px-3 py-2" />
-            <td className="px-3 py-2 text-right font-bold text-gray-900">{fmtCZK(account.starting_balance)}</td>
-          </tr>
-
-          {rows.length === 0 && (
+    <>
+      <div className="border rounded-lg overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-100 border-b">
             <tr>
-              <td colSpan={7} className="px-3 py-12 text-center text-gray-400">
-                Žádné transakce pro rok {year}.<br />Importuj CSV a vyber tento účet.
-              </td>
+              <th className="px-3 py-2 text-left text-gray-500 w-8">#</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-24">Datum</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-20">Doklad</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-24">VS</th>
+              <th className="px-3 py-2 text-left text-gray-500">Popis</th>
+              <th className="px-3 py-2 text-left text-gray-500 w-36">Protiúčet</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-28">Příjmy</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-28">Výdaje</th>
+              <th className="px-3 py-2 text-right text-gray-500 w-32">Zůstatek</th>
+              <th className="px-3 py-2 w-8" />
             </tr>
-          )}
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            <tr className="bg-blue-50/60">
+              <td className="px-3 py-2 text-gray-400" />
+              <td className="px-3 py-2 text-gray-400" />
+              <td className="px-3 py-2 font-mono text-gray-400 text-center">x</td>
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 font-semibold text-gray-700">Počáteční stav</td>
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 text-right font-bold text-gray-900">{fmtCZK(account.starting_balance)}</td>
+              <td className="px-3 py-2" />
+            </tr>
 
-          {rows.map(r => {
-            const isTransfer = r.label.toLowerCase().includes('převod')
-            return (
-              <tr key={r.entry.id} className={cn(
-                'hover:bg-gray-50 transition-colors',
-                isTransfer && 'bg-blue-50/40 text-blue-800'
-              )}>
-                <td className="px-3 py-2 text-gray-400">{r.idx}</td>
-                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(r.entry.date)}</td>
-                <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[100px]" title={r.entry.variable_symbol ?? ''}>
-                  {r.entry.variable_symbol ?? '—'}
-                </td>
-                <td className="px-3 py-2 truncate" title={r.label}>{r.label}</td>
-                <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums">
-                  {r.income > 0 ? fmtCZK(r.income) : ''}
-                </td>
-                <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums">
-                  {r.expense > 0 ? fmtCZK(r.expense) : ''}
-                </td>
-                <td className={cn(
-                  'px-3 py-2 text-right font-medium tabular-nums',
-                  r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
-                )}>
-                  {fmtCZK(r.balance)}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={10} className="px-3 py-12 text-center text-gray-400">
+                  Žádné transakce pro rok {year}.<br />Synchronizuj FIO nebo importuj CSV.
                 </td>
               </tr>
-            )
-          })}
-        </tbody>
-        {rows.length > 0 && (
-          <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-            <tr>
-              <td colSpan={4} className="px-3 py-2 text-gray-700 text-xs">CELKEM {year}</td>
-              <td className="px-3 py-2 text-right text-green-700 tabular-nums">{fmtCZK(totalIncome)}</td>
-              <td className="px-3 py-2 text-right text-red-600 tabular-nums">{fmtCZK(totalExpense)}</td>
-              <td className="px-3 py-2 text-right text-gray-900 tabular-nums">{fmtCZK(finalBalance)}</td>
-            </tr>
-          </tfoot>
-        )}
-      </table>
-    </div>
+            )}
+
+            {rows.map(r => {
+              const isTransfer = r.description.toLowerCase().includes('převod')
+              const docNumber = entryDocNumber(r.entry)
+              const counterparty = entryCounterparty(r.entry, r.description)
+              return (
+                <tr key={r.entry.id} className={cn(
+                  'hover:bg-gray-50 transition-colors group',
+                  isTransfer && 'bg-blue-50/40 text-blue-800'
+                )}>
+                  <td className="px-3 py-2 text-gray-400">{r.idx}</td>
+                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(r.entry.date)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-500 truncate max-w-[80px]" title={docNumber}>
+                    {docNumber || '—'}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[96px]" title={r.entry.variable_symbol ?? ''}>
+                    {r.entry.variable_symbol ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 truncate max-w-[200px]" title={r.description}>{r.description}</td>
+                  <td className="px-3 py-2 truncate max-w-[144px] text-gray-500" title={counterparty}>
+                    {counterparty}
+                  </td>
+                  <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums">
+                    {r.income > 0 ? fmtCZK(r.income) : ''}
+                  </td>
+                  <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums">
+                    {r.expense > 0 ? fmtCZK(r.expense) : ''}
+                  </td>
+                  <td className={cn(
+                    'px-3 py-2 text-right font-medium tabular-nums',
+                    r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
+                  )}>
+                    {fmtCZK(r.balance)}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => setEditing(r.entry)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-700 transition-opacity"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+              <tr>
+                <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs">CELKEM {year}</td>
+                <td className="px-3 py-2 text-right text-green-700 tabular-nums">{fmtCZK(totalIncome)}</td>
+                <td className="px-3 py-2 text-right text-red-600 tabular-nums">{fmtCZK(totalExpense)}</td>
+                <td className="px-3 py-2 text-right text-gray-900 tabular-nums">{fmtCZK(finalBalance)}</td>
+                <td className="px-3 py-2" />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {editing && (
+        <EditTransactionModal
+          entry={editing}
+          onSaved={onRefresh}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -361,7 +451,7 @@ export default function JournalPage() {
 
           {/* Tabulka aktivního účtu */}
           {activeAccount && (
-            <AccountTable account={activeAccount} entries={entries} year={year} month={month} />
+            <AccountTable account={activeAccount} entries={entries} year={year} month={month} onRefresh={fetchData} />
           )}
         </div>
       )}
