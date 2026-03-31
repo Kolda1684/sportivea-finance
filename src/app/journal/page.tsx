@@ -247,6 +247,20 @@ function AccountSettingsModal({ accounts, onSaved, onClose }: {
     }]))
   )
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Smazat účet "${name}"?`)) return
+    setDeletingId(id)
+    await fetch('/api/banking/accounts', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    setDeletingId(null)
+    onSaved()
+    onClose()
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -274,7 +288,16 @@ function AccountSettingsModal({ accounts, onSaved, onClose }: {
         <div className="space-y-5">
           {accounts.map(a => (
             <div key={a.id} className="space-y-3 border rounded-lg p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Účet</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Účet</p>
+                <button
+                  onClick={() => handleDelete(a.id, values[a.id]?.name ?? a.name)}
+                  disabled={deletingId === a.id}
+                  className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                >
+                  {deletingId === a.id ? 'Mažu…' : 'Smazat účet'}
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>Název</Label>

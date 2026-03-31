@@ -21,3 +21,11 @@ export async function PATCH(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
+
+export async function DELETE(req: NextRequest) {
+  const supabase = createAdminSupabaseClient()
+  const { id } = await req.json()
+  const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
