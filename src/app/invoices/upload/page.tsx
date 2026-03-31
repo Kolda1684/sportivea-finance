@@ -127,7 +127,10 @@ export default function UploadInvoicePage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Chyba při odesílání do Fakturoidu')
+      if (!res.ok) {
+        const detail = data.details ? JSON.stringify(data.details, null, 2) : ''
+        throw new Error(`${data.error ?? 'Chyba při odesílání do Fakturoidu'}${detail ? '\n' + detail : ''}`)
+      }
       setResult(data)
       setStatus('done')
     } catch (e: unknown) {
@@ -218,8 +221,9 @@ export default function UploadInvoicePage() {
           {preview && <img src={preview} alt="náhled" className="rounded-lg border max-h-64 object-contain w-full" />}
 
           {status === 'error' && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center gap-3 text-sm text-red-700">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />{errorMsg}
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex gap-3 text-sm text-red-700">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <pre className="whitespace-pre-wrap font-sans">{errorMsg}</pre>
             </div>
           )}
 
