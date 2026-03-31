@@ -3,14 +3,65 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+const PROMPT = `Přečti tuto fakturu/účtenku a extrahuj všechna data.
+Vrať POUZE validní JSON bez jakéhokoliv dalšího textu, bez markdown bloků.
+
+Pravidla:
+- "taxable_supply_date": pokud není explicitně uvedeno DUZP, použij hodnotu "issued_on"
+- "document_type": "invoice" pro fakturu, "receipt" pro účtenku/paragon, "other" pro ostatní
+- "currency": třípísmenný kód (CZK, EUR, USD atd.)
+- Pokud pole nelze přečíst, použij null – NIKDY neinventuj hodnoty
+- Částky vždy jako číslo bez mezer a bez symbolu měny (např. 1500.00)
+- Data vždy ve formátu YYYY-MM-DD
+- "variable_symbol": variabilní symbol nebo číslo faktury
+- "supplier_name": název firmy dodavatele přesně jak je na faktuře
+- "items": pole položek faktury
+
+{
+  "document_type": "invoice",
+  "supplier_name": null,
+  "supplier_ico": null,
+  "supplier_dic": null,
+  "supplier_address": null,
+  "invoice_number": null,
+  "variable_symbol": null,
+  "issued_on": null,
+  "received_on": null,
+  "taxable_supply_date": null,
+  "due_on": null,
+  "currency": "CZK",
+  "vat_mode": "standard",
+  "items": [
+    {
+      "name": "",
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 0,
+      "vat_rate": 21
+    }
+  ],
+  "total_without_vat": null,
+  "vat_amount": null,
+  "total_with_vat": null,
+  "note": null,
+  "confidence": {
+    "overall": 0,
+    "low_confidence_fields": []
+  }
+}`
+
 export async function POST(req: NextRequest) {
   const form = await req.formData()
   const file = form.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'Chybí soubor' }, { status: 400 })
 
+  const MAX_MB = 10
+  if (file.size > MAX_MB * 1024 * 1024) {
+    return NextResponse.json({ error: `Soubor je příliš velký. Maximum je ${MAX_MB} MB.` }, { status: 400 })
+  }
+
   const bytes = await file.arrayBuffer()
   const base64 = Buffer.from(bytes).toString('base64')
-
   const isPdf = file.type === 'application/pdf'
 
   const fileBlock = isPdf
@@ -30,39 +81,27 @@ export async function POST(req: NextRequest) {
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            fileBlock,
-            {
-              type: 'text',
-              text: `Z tohoto dokumentu (faktura / účtenka) vyextrahuj následující údaje a vrať POUZE JSON bez jakéhokoliv dalšího textu:
-
-{
-  "supplier_name": "název dodavatele / obchodníka",
-  "amount": číslo (celková částka bez DPH pokud je k dispozici, jinak celková),
-  "currency": "CZK" nebo jiná měna,
-  "date": "YYYY-MM-DD" datum vystavení nebo datum transakce,
-  "due_date": "YYYY-MM-DD" datum splatnosti nebo null,
-  "variable_symbol": "variabilní symbol nebo číslo faktury" nebo null,
-  "note": "číslo faktury nebo stručný popis" nebo null
-}
-
-Pokud údaj nelze najít, použij null. Částku vrať jako číslo (ne string).`,
-            },
-          ],
-        },
-      ],
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
     })
 
     const text = message.content[0].type === 'text' ? message.content[0].text : ''
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const clean = text.replace(/```json|```/g, '').trim()
+    const jsonMatch = clean.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('Claude nevrátil validní JSON')
 
     const data = JSON.parse(jsonMatch[0])
-    return NextResponse.json(data)
+
+    // Nastav taxable_supply_date pokud chybí
+    if (!data.taxable_supply_date && data.issued_on) {
+      data.taxable_supply_date = data.issued_on
+    }
+    // Nastav received_on pokud chybí
+    if (!data.received_on) {
+      data.received_on = new Date().toISOString().slice(0, 10)
+    }
+
+    return NextResponse.json({ ...data, _file_base64: base64, _file_type: file.type })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Chyba AI extrakce' }, { status: 500 })
   }
