@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2, Download } from 'lucide-react'
+import { Settings2, Download, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -237,6 +237,7 @@ export default function JournalPage() {
   const [loading, setLoading] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   async function fetchData() {
     setLoading(true)
@@ -264,6 +265,21 @@ export default function JournalPage() {
     'Leden','Únor','Březen','Duben','Květen','Červen',
     'Červenec','Srpen','Září','Říjen','Listopad','Prosinec',
   ]
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/banking/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Chyba synchronizace')
+      await fetchData()
+      alert(`Synchronizace dokončena:\n${data.results.map((r: { account: string; imported: number; skipped: number }) => `${r.account}: ${r.imported} nových`).join('\n')}`)
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Chyba FIO synchronizace')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   function handleExport() {
     const params = new URLSearchParams({ year: String(year) })
@@ -295,6 +311,10 @@ export default function JournalPage() {
             <option value="all">Celý rok</option>
             {MONTHS.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
           </select>
+          <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+            <RefreshCw className={cn('h-4 w-4 mr-1.5', syncing && 'animate-spin')} />
+            {syncing ? 'Synchronizuji…' : 'Synchronizovat FIO'}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1.5" />
             Exportovat CSV

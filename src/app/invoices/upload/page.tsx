@@ -177,7 +177,7 @@ export default function UploadInvoicePage() {
             <div className="rounded-xl border bg-white p-5 space-y-4">
               <p className="text-sm font-semibold text-gray-700">Přečtené údaje — zkontroluj před uložením:</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <Field label="Dodavatel" value={extracted.supplier_name} onChange={v => setExtracted(x => x && ({ ...x, supplier_name: v }))} />
+                <Field label="Dodavatel" value={extracted.supplier_name ?? ''} onChange={v => setExtracted(x => x && ({ ...x, supplier_name: v }))} />
                 <Field label="Částka" value={extracted.amount != null ? String(extracted.amount) : ''} onChange={v => setExtracted(x => x && ({ ...x, amount: parseFloat(v) || null }))} type="number" />
                 <Field label="Měna" value={extracted.currency} onChange={v => setExtracted(x => x && ({ ...x, currency: v }))} />
                 <Field label="Datum" value={extracted.date ?? ''} onChange={v => setExtracted(x => x && ({ ...x, date: v || null }))} type="date" />
@@ -185,8 +185,8 @@ export default function UploadInvoicePage() {
                 <Field label="Variabilní symbol" value={extracted.variable_symbol ?? ''} onChange={v => setExtracted(x => x && ({ ...x, variable_symbol: v || null }))} />
               </div>
               <div className="flex gap-3 pt-2">
-                <Button onClick={handleSave} disabled={status === 'saving'} className="flex-1">
-                  {status === 'saving' ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Ukládám…</> : 'Uložit fakturu'}
+                <Button onClick={handleSave} className="flex-1">
+                  Uložit fakturu
                 </Button>
                 <Button variant="outline" onClick={reset}>Zrušit</Button>
               </div>

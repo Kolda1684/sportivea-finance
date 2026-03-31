@@ -49,6 +49,18 @@ export async function fetchFioTransactions(
   return data.accountStatement.transactionList.transaction ?? []
 }
 
+export async function fetchFioFull(
+  token: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<FioResponse['accountStatement']> {
+  const url = `${FIO_BASE}/periods/${token}/${dateFrom}/${dateTo}/transactions.json`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Fio API chyba: ${res.status}`)
+  const data: FioResponse = await res.json()
+  return data.accountStatement
+}
+
 export function mapFioTransactionToDb(t: FioTransaction) {
   return {
     fio_id: t.column22?.value?.toString() ?? null,
