@@ -133,6 +133,10 @@ export default function UploadInvoicePage() {
       }
       setResult(data)
       setStatus('done')
+      if (data.attachmentError) {
+        console.warn('Attachment error:', data.attachmentError)
+        setErrorMsg(`Náklad vložen, ale příloha se nepřiložila: ${data.attachmentError}`)
+      }
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : 'Neznámá chyba')
       setStatus('error')
@@ -175,14 +179,20 @@ export default function UploadInvoicePage() {
 
       {/* Úspěch */}
       {status === 'done' && result && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
-            <p className="font-semibold text-green-900">Náklad {result.number} byl vložen do Fakturoidu</p>
-          </div>
-          <div className="flex gap-3">
+        <div className="space-y-3">
+          <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
+              <p className="font-semibold text-green-900">Náklad {result.number} byl vložen do Fakturoidu</p>
+            </div>
             <Button variant="outline" size="sm" onClick={reset}>Nahrát další fakturu</Button>
           </div>
+          {errorMsg && (
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 flex gap-2 text-sm text-yellow-800">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
         </div>
       )}
 

@@ -118,21 +118,32 @@ export async function POST(req: NextRequest) {
   const created = await expRes.json()
 
   // 4. Nahraj přílohu
+  let attachmentError: string | null = null
   if (file_base64 && created.id) {
     try {
       const binary = Buffer.from(file_base64, 'base64')
       const blob = new Blob([binary], { type: file_type })
       const formData = new FormData()
-      formData.append('file', blob, file_type === 'application/pdf' ? 'faktura.pdf' : 'faktura.jpg')
+      const filename = file_type === 'application/pdf' ? 'faktura.pdf' : 'faktura.jpg'
+      formData.append('file', blob, filename)
 
-      await fetch(`${FAKTUROID_BASE}/${slug}/expenses/${created.id}/attachments.json`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'SportiveaFinanceDashboard/1.0' },
-        body: formData,
-      })
-    } catch {
-      // Příloha není kritická — pokračuj
+      const attachRes = await fetch(
+        `${FAKTUROID_BASE}/${slug}/expenses/${created.id}/attachments.json`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'SportiveaFinanceDashboard/1.0' },
+          body: formData,
+        }
+      )
+      if (!attachRes.ok) {
+        const attachErr = await attachRes.text()
+        attachmentError = `Příloha: ${attachRes.status} ${attachErr}`
+      }
+    } catch (e) {
+      attachmentError = `Příloha: ${String(e)}`
     }
+  } else if (!file_base64) {
+    attachmentError = 'Soubor nebyl předán (file_base64 chybí)'
   }
 
   // 5. Ulož do Supabase expense_invoices
@@ -148,5 +159,5 @@ export async function POST(req: NextRequest) {
     fakturoid_id: String(created.id),
   }, { onConflict: 'fakturoid_id' })
 
-  return NextResponse.json({ ok: true, fakturoid_id: created.id, number: created.number })
+  return NextResponse.json({ ok: true, fakturoid_id: created.id, number: created.number, attachmentError })
 }
