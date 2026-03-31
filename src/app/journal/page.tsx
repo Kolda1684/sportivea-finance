@@ -97,6 +97,45 @@ function EditTransactionModal({ entry, onSaved, onClose }: {
   )
 }
 
+function InlineCell({ value, onSave, className, mono }: {
+  value: string
+  onSave: (v: string) => void
+  className?: string
+  mono?: boolean
+}) {
+  const [active, setActive] = useState(false)
+  const [draft, setDraft] = useState(value)
+
+  function commit() {
+    setActive(false)
+    if (draft !== value) onSave(draft)
+  }
+
+  if (active) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setActive(false) } }}
+        onClick={e => e.stopPropagation()}
+        className={cn('w-full bg-white border border-primary-900 rounded px-1 py-0 outline-none text-xs', mono && 'font-mono', className)}
+      />
+    )
+  }
+
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); setActive(true); setDraft(value) }}
+      className={cn('block w-full cursor-text truncate', mono && 'font-mono', className)}
+      title={value}
+    >
+      {value || <span className="text-gray-300">—</span>}
+    </span>
+  )
+}
+
 function AccountTable({ account, entries, year, month, onRefresh }: {
   account: BankAccount
   entries: JournalEntry[]
@@ -104,9 +143,11 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
   month: number | 'all'
   onRefresh: () => void
 }) {
-  const [editing, setEditing] = useState<JournalEntry | null>(null)
+  const [localEntries, setLocalEntries] = useState<JournalEntry[]>(entries)
+  useEffect(() => { setLocalEntries(entries) }, [entries])
 
-  const yearEntries = entries
+  // Chronologicky pro výpočet zůstatků
+  const chronological = localEntries
     .filter(e => {
       const d = new Date(e.date)
       if (e.account_id !== account.id) return false
@@ -117,7 +158,7 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   let balance = account.starting_balance
-  const rows = yearEntries.map((entry, i) => {
+  const rows = chronological.map((entry, i) => {
     const czk = Math.abs(entry.amount_czk ?? entry.amount)
     const isIncome = entry.type === 'income'
     const income = isIncome ? czk : 0
@@ -127,110 +168,122 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
     return { entry, income, expense, balance, description, idx: i + 1 }
   })
 
+  // Zobrazujeme nejnovější nahoře
+  const displayRows = [...rows].reverse()
+
   const totalIncome = rows.reduce((s, r) => s + r.income, 0)
   const totalExpense = rows.reduce((s, r) => s + r.expense, 0)
   const finalBalance = account.starting_balance + totalIncome - totalExpense
 
-  return (
-    <>
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-xs border-collapse">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="px-3 py-2 text-left text-gray-500 w-8 border border-gray-200">#</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Datum</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-20 border border-gray-200">Doklad</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">VS</th>
-              <th className="px-3 py-2 text-left text-gray-500 border border-gray-200">Popis</th>
-              <th className="px-3 py-2 text-left text-gray-500 w-36 border border-gray-200">Protiúčet</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Příjmy</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Výdaje</th>
-              <th className="px-3 py-2 text-right text-gray-500 w-32 border border-gray-200">Zůstatek</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="bg-blue-50/60">
-              <td className="px-3 py-2 text-gray-400 border border-gray-200" />
-              <td className="px-3 py-2 text-gray-400 border border-gray-200" />
-              <td className="px-3 py-2 font-mono text-gray-400 text-center border border-gray-200">x</td>
-              <td className="px-3 py-2 border border-gray-200" />
-              <td className="px-3 py-2 font-semibold text-gray-700 border border-gray-200">Počáteční stav</td>
-              <td className="px-3 py-2 border border-gray-200" />
-              <td className="px-3 py-2 border border-gray-200" />
-              <td className="px-3 py-2 border border-gray-200" />
-              <td className="px-3 py-2 text-right font-bold text-gray-900 border border-gray-200">{fmtCZK(account.starting_balance)}</td>
-            </tr>
+  async function saveField(id: string, field: string, value: string) {
+    setLocalEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: value || null } : e))
+    await fetch(`/api/banking/transactions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value || null }),
+    })
+  }
 
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-3 py-12 text-center text-gray-400 border border-gray-200">
-                  Žádné transakce pro rok {year}.<br />Synchronizuj FIO nebo importuj CSV.
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <table className="w-full text-xs border-collapse">
+        <thead className="bg-gray-100 sticky top-0 z-10">
+          <tr>
+            <th className="px-3 py-2 text-left text-gray-500 w-8 border border-gray-200">#</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Datum</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Doklad</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">VS</th>
+            <th className="px-3 py-2 text-left text-gray-500 border border-gray-200">Popis</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-36 border border-gray-200">Protiúčet</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Příjmy</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Výdaje</th>
+            <th className="px-3 py-2 text-right text-gray-500 w-32 border border-gray-200">Zůstatek</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={9} className="px-3 py-12 text-center text-gray-400 border border-gray-200">
+                Žádné transakce pro rok {year}.<br />Synchronizuj FIO nebo importuj CSV.
+              </td>
+            </tr>
+          )}
+
+          {displayRows.map(r => {
+            const isTransfer = r.description.toLowerCase().includes('převod')
+            const docNumber = entryDocNumber(r.entry)
+            const counterparty = entryCounterparty(r.entry, r.description)
+            return (
+              <tr key={r.entry.id} className={cn(
+                'hover:bg-blue-50/30 transition-colors',
+                isTransfer && 'bg-blue-50/40 text-blue-800'
+              )}>
+                <td className="px-3 py-1.5 text-gray-400 border border-gray-200">{r.idx}</td>
+                <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap border border-gray-200">{formatDate(r.entry.date)}</td>
+                <td className="px-2 py-1 border border-gray-200">
+                  <InlineCell
+                    mono
+                    value={docNumber}
+                    onSave={v => saveField(r.entry.id, 'counterparty_name', v)}
+                    className="text-gray-500"
+                  />
+                </td>
+                <td className="px-2 py-1 font-mono text-gray-400 border border-gray-200" title={r.entry.variable_symbol ?? ''}>
+                  {r.entry.variable_symbol ?? '—'}
+                </td>
+                <td className="px-2 py-1 border border-gray-200">
+                  <InlineCell
+                    value={r.description}
+                    onSave={v => saveField(r.entry.id, 'message', v)}
+                  />
+                </td>
+                <td className="px-2 py-1 border border-gray-200">
+                  <InlineCell
+                    value={counterparty}
+                    onSave={v => saveField(r.entry.id, 'counterparty_name', v)}
+                    className="text-gray-500"
+                  />
+                </td>
+                <td className="px-3 py-1.5 text-right text-green-700 font-medium tabular-nums border border-gray-200">
+                  {r.income > 0 ? fmtCZK(r.income) : ''}
+                </td>
+                <td className="px-3 py-1.5 text-right text-red-600 font-medium tabular-nums border border-gray-200">
+                  {r.expense > 0 ? fmtCZK(r.expense) : ''}
+                </td>
+                <td className={cn(
+                  'px-3 py-1.5 text-right font-medium tabular-nums border border-gray-200',
+                  r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
+                )}>
+                  {fmtCZK(r.balance)}
                 </td>
               </tr>
-            )}
+            )
+          })}
 
-            {rows.map(r => {
-              const isTransfer = r.description.toLowerCase().includes('převod')
-              const docNumber = entryDocNumber(r.entry)
-              const counterparty = entryCounterparty(r.entry, r.description)
-              return (
-                <tr
-                  key={r.entry.id}
-                  onClick={() => setEditing(r.entry)}
-                  className={cn(
-                    'hover:bg-blue-50/50 cursor-pointer transition-colors',
-                    isTransfer && 'bg-blue-50/40 text-blue-800'
-                  )}
-                >
-                  <td className="px-3 py-2 text-gray-400 border border-gray-200">{r.idx}</td>
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap border border-gray-200">{formatDate(r.entry.date)}</td>
-                  <td className="px-3 py-2 font-mono text-gray-500 truncate max-w-[80px] border border-gray-200" title={docNumber}>
-                    {docNumber || '—'}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-gray-400 truncate max-w-[96px] border border-gray-200" title={r.entry.variable_symbol ?? ''}>
-                    {r.entry.variable_symbol ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 truncate max-w-[200px] border border-gray-200" title={r.description}>{r.description}</td>
-                  <td className="px-3 py-2 truncate max-w-[144px] text-gray-500 border border-gray-200" title={counterparty}>
-                    {counterparty}
-                  </td>
-                  <td className="px-3 py-2 text-right text-green-700 font-medium tabular-nums border border-gray-200">
-                    {r.income > 0 ? fmtCZK(r.income) : ''}
-                  </td>
-                  <td className="px-3 py-2 text-right text-red-600 font-medium tabular-nums border border-gray-200">
-                    {r.expense > 0 ? fmtCZK(r.expense) : ''}
-                  </td>
-                  <td className={cn(
-                    'px-3 py-2 text-right font-medium tabular-nums border border-gray-200',
-                    r.balance >= 0 ? 'text-gray-900' : 'text-red-600'
-                  )}>
-                    {fmtCZK(r.balance)}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot className="bg-gray-50 font-semibold">
-              <tr>
-                <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
-                <td className="px-3 py-2 text-right text-green-700 tabular-nums border border-gray-300">{fmtCZK(totalIncome)}</td>
-                <td className="px-3 py-2 text-right text-red-600 tabular-nums border border-gray-300">{fmtCZK(totalExpense)}</td>
-                <td className="px-3 py-2 text-right text-gray-900 tabular-nums border border-gray-300">{fmtCZK(finalBalance)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-
-      {editing && (
-        <EditTransactionModal
-          entry={editing}
-          onSaved={onRefresh}
-          onClose={() => setEditing(null)}
-        />
-      )}
-    </>
+          <tr className="bg-blue-50/60">
+            <td className="px-3 py-2 text-gray-400 border border-gray-200" />
+            <td className="px-3 py-2 text-gray-400 border border-gray-200" />
+            <td className="px-3 py-2 font-mono text-gray-400 text-center border border-gray-200">x</td>
+            <td className="px-3 py-2 border border-gray-200" />
+            <td className="px-3 py-2 font-semibold text-gray-700 border border-gray-200">Počáteční stav</td>
+            <td className="px-3 py-2 border border-gray-200" />
+            <td className="px-3 py-2 border border-gray-200" />
+            <td className="px-3 py-2 border border-gray-200" />
+            <td className="px-3 py-2 text-right font-bold text-gray-900 border border-gray-200">{fmtCZK(account.starting_balance)}</td>
+          </tr>
+        </tbody>
+        {rows.length > 0 && (
+          <tfoot className="bg-gray-50 font-semibold">
+            <tr>
+              <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
+              <td className="px-3 py-2 text-right text-green-700 tabular-nums border border-gray-300">{fmtCZK(totalIncome)}</td>
+              <td className="px-3 py-2 text-right text-red-600 tabular-nums border border-gray-300">{fmtCZK(totalExpense)}</td>
+              <td className="px-3 py-2 text-right text-gray-900 tabular-nums border border-gray-300">{fmtCZK(finalBalance)}</td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
   )
 }
 
