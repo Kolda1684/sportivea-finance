@@ -86,8 +86,7 @@ export async function POST(req: NextRequest) {
 
   const payload: Record<string, unknown> = {
     document_type: extracted.document_type === 'receipt' ? 'receipt' : 'invoice',
-    number: extracted.invoice_number ?? '',
-    variable_symbol: extracted.variable_symbol ?? undefined,
+    variable_symbol: extracted.variable_symbol ?? extracted.invoice_number ?? undefined,
     issued_on: extracted.issued_on ?? today,
     received_on: extracted.received_on ?? today,
     taxable_fulfillment_due: extracted.taxable_supply_date ?? extracted.issued_on ?? today,
