@@ -89,8 +89,10 @@ export async function GET(req: NextRequest) {
     const origAmount = isForeign ? fmtNum(Math.abs(tx.amount)) : ''
     const rate = isForeign && tx.exchange_rate ? fmtNum(tx.exchange_rate) : ''
     const accountName = accountMap.get(tx.account_id ?? '')?.name ?? ''
-    const label = entryLabel(tx as Parameters<typeof entryLabel>[0])
-    const docNumber = tx.invoices && 'number' in tx.invoices && tx.invoices.number ? tx.invoices.number : ''
+    const inv = Array.isArray(tx.invoices) ? tx.invoices[0] ?? null : tx.invoices ?? null
+    const expInv = Array.isArray(tx.expense_invoices) ? tx.expense_invoices[0] ?? null : tx.expense_invoices ?? null
+    const label = entryLabel({ ...tx, invoices: inv, expense_invoices: expInv })
+    const docNumber = inv?.number ?? ''
 
     rows.push([
       idx++,
