@@ -73,11 +73,14 @@ export async function POST(req: NextRequest) {
 
       const amountCzk = Math.abs(row.amount)
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { constant_symbol, specific_symbol, ...rowClean } = row
+
       const { error } = await supabase
         .from('bank_transactions')
         .upsert(
           {
-            ...row,
+            ...rowClean,
             account_id: account.id,
             amount_czk: amountCzk,
           },
