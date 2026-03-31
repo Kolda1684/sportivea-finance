@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = createAdminSupabaseClient()
-  const results: { account: string; imported: number; skipped: number }[] = []
+  const results: { account: string; imported: number; skipped: number; errors: string[] }[] = []
 
   for (const { envKey, token } of tokens) {
     let statement
@@ -65,13 +65,13 @@ export async function POST(req: NextRequest) {
     const txs = transactionList.transaction ?? []
     let imported = 0
     let skipped = 0
+    const errors: string[] = []
 
     for (const t of txs) {
       const row = mapFioTransactionToDb(t)
       if (!row.fio_id || !row.date) { skipped++; continue }
 
       const amountCzk = Math.abs(row.amount)
-      const exchangeRate = row.currency === 'CZK' ? null : null // budoucí: kurz ČNB
 
       const { error } = await supabase
         .from('bank_transactions')
@@ -80,16 +80,19 @@ export async function POST(req: NextRequest) {
             ...row,
             account_id: account.id,
             amount_czk: amountCzk,
-            exchange_rate: exchangeRate,
           },
           { onConflict: 'fio_id' }
         )
 
-      if (error) { skipped++; continue }
+      if (error) {
+        errors.push(`${row.fio_id}: ${error.message}`)
+        skipped++
+        continue
+      }
       imported++
     }
 
-    results.push({ account: accountNumber, imported, skipped })
+    results.push({ account: accountNumber, imported, skipped, errors: errors.slice(0, 5) })
   }
 
   return NextResponse.json({ ok: true, dateFrom, dateTo, results })

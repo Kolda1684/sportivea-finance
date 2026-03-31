@@ -273,7 +273,10 @@ export default function JournalPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Chyba synchronizace')
       await fetchData()
-      alert(`Synchronizace dokončena:\n${data.results.map((r: { account: string; imported: number; skipped: number }) => `${r.account}: ${r.imported} nových`).join('\n')}`)
+      const summary = data.results.map((r: { account: string; imported: number; skipped: number; errors: string[] }) =>
+        `${r.account}: ${r.imported} nových, ${r.skipped} přeskočeno${r.errors?.length ? '\nChyby: ' + r.errors.join('; ') : ''}`
+      ).join('\n\n')
+      alert(`Synchronizace dokončena:\n\n${summary}`)
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Chyba FIO synchronizace')
     } finally {
