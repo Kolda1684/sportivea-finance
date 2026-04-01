@@ -72,6 +72,8 @@ export default function UploadInvoicePage() {
   const [result, setResult] = useState<{ fakturoid_id: number; number: string } | null>(null)
   // track if user manually edited taxable_supply_date
   const [duzpManual, setDuzpManual] = useState(false)
+  // DPH výpočet: 'from_base' = cena/ks je základ bez DPH, 'from_total' = cena/ks je celková cena s DPH
+  const [vatCalcMode, setVatCalcMode] = useState<'from_base' | 'from_total'>('from_base')
 
   function handleFile(f: File) {
     setFile(f)
@@ -117,11 +119,22 @@ export default function UploadInvoicePage() {
     if (!extracted) return
     setStatus('submitting')
     try {
+      // Pokud počítáme DPH z celkové částky, přepočítáme unit_price na základ bez DPH
+      // (Fakturoid vždy očekává cenu bez DPH)
+      const extractedForSubmit = vatCalcMode === 'from_total'
+        ? {
+            ...extracted,
+            items: extracted.items.map(it => ({
+              ...it,
+              unit_price: it.unit_price / (1 + it.vat_rate / 100),
+            })),
+          }
+        : extracted
       const res = await fetch('/api/invoices/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          extracted,
+          extracted: extractedForSubmit,
           file_base64: extracted._file_base64,
           file_type: extracted._file_type,
         }),
@@ -160,10 +173,14 @@ export default function UploadInvoicePage() {
     setExtracted(x => x ? { ...x, items: x.items.filter((_, idx) => idx !== i) } : x)
   }
 
-  // Computed totals from items
-  const computedWithoutVat = extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price, 0) ?? 0
-  const computedVat = extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price * (it.vat_rate / 100), 0) ?? 0
-  const computedTotal = computedWithoutVat + computedVat
+  // Computed totals from items (závisí na vatCalcMode)
+  const computedWithoutVat = vatCalcMode === 'from_base'
+    ? (extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price, 0) ?? 0)
+    : (extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price / (1 + it.vat_rate / 100), 0) ?? 0)
+  const computedTotal = vatCalcMode === 'from_base'
+    ? (extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price * (1 + it.vat_rate / 100), 0) ?? 0)
+    : (extracted?.items.reduce((s, it) => s + it.quantity * it.unit_price, 0) ?? 0)
+  const computedVat = computedTotal - computedWithoutVat
 
   const lowFields = new Set(extracted?.confidence?.low_confidence_fields ?? [])
   const confidence = extracted?.confidence?.overall ?? 100
@@ -329,14 +346,34 @@ export default function UploadInvoicePage() {
 
                 {/* Položky */}
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Položky</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Položky</p>
+                    <p className="text-xs text-gray-500">
+                      DPH počítám z{' '}
+                      <button
+                        onClick={() => setVatCalcMode(m => m === 'from_base' ? 'from_total' : 'from_base')}
+                        className="font-semibold text-primary-900 underline underline-offset-2 hover:text-primary-700"
+                      >
+                        {vatCalcMode === 'from_base' ? 'Základu' : 'Celkové částky'}
+                      </button>
+                      {'  '}
+                      <button
+                        onClick={() => setVatCalcMode(m => m === 'from_base' ? 'from_total' : 'from_base')}
+                        className="text-primary-900 hover:text-primary-700"
+                      >
+                        Změnit
+                      </button>
+                    </p>
+                  </div>
                   <div className="border rounded-lg overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 border-b">
                         <tr>
                           <th className="px-3 py-2 text-left text-gray-500">Popis</th>
                           <th className="px-3 py-2 text-right text-gray-500 w-16">Ks</th>
-                          <th className="px-3 py-2 text-right text-gray-500 w-24">Cena/ks</th>
+                          <th className="px-3 py-2 text-right text-gray-500 w-28">
+                            {vatCalcMode === 'from_base' ? 'Cena/ks (bez DPH)' : 'Cena/ks (s DPH)'}
+                          </th>
                           <th className="px-3 py-2 text-right text-gray-500 w-16">DPH %</th>
                           <th className="px-3 py-2 w-8" />
                         </tr>
