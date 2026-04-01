@@ -103,6 +103,15 @@ export async function POST(req: NextRequest) {
   }
   if (subjectId) payload.subject_id = subjectId
 
+  // Příloha jako data_url v těle payloadu (Fakturoid v3 API nemá samostatný attachment endpoint)
+  if (file_base64 && file_type) {
+    const filename = file_type === 'application/pdf' ? 'faktura.pdf'
+      : file_type === 'image/heic' ? 'faktura.heic'
+      : file_type.startsWith('image/') ? `faktura.${file_type.split('/')[1]}`
+      : 'faktura.bin'
+    payload.attachments = [{ filename, data_url: `data:${file_type};base64,${file_base64}` }]
+  }
+
   // 3. Vytvoř expense ve Fakturoidu
   const expRes = await fetch(`${FAKTUROID_BASE}/${slug}/expenses.json`, {
     method: 'POST',
@@ -116,35 +125,7 @@ export async function POST(req: NextRequest) {
   }
 
   const created = await expRes.json()
-
-  // 4. Nahraj přílohu
-  let attachmentError: string | null = null
-  if (file_base64 && created.id) {
-    try {
-      const binary = Buffer.from(file_base64, 'base64')
-      const blob = new Blob([binary], { type: file_type })
-      const formData = new FormData()
-      const filename = file_type === 'application/pdf' ? 'faktura.pdf' : 'faktura.jpg'
-      formData.append('file', blob, filename)
-
-      const attachRes = await fetch(
-        `${FAKTUROID_BASE}/${slug}/expenses/${created.id}/attachments.json`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'SportiveaFinanceDashboard/1.0' },
-          body: formData,
-        }
-      )
-      if (!attachRes.ok) {
-        const attachErr = await attachRes.text()
-        attachmentError = `Příloha: ${attachRes.status} ${attachErr}`
-      }
-    } catch (e) {
-      attachmentError = `Příloha: ${String(e)}`
-    }
-  } else if (!file_base64) {
-    attachmentError = 'Soubor nebyl předán (file_base64 chybí)'
-  }
+  const attachmentError: string | null = null
 
   // 5. Ulož do Supabase expense_invoices
   const supabase = createAdminSupabaseClient()
