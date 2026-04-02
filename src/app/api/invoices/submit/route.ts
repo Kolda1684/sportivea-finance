@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     document_type: extracted.document_type === 'receipt' ? 'receipt' : 'invoice',
     variable_symbol: extracted.variable_symbol ?? extracted.invoice_number ?? undefined,
     issued_on: extracted.issued_on ?? today,
-    received_on: extracted.received_on ?? today,
+    received_on: extracted.received_on ?? extracted.issued_on ?? today,
     taxable_fulfillment_due: extracted.taxable_supply_date ?? extracted.issued_on ?? today,
     due_on: extracted.due_on ?? addDays(extracted.issued_on ?? today, 14),
     currency: extracted.currency ?? 'CZK',
