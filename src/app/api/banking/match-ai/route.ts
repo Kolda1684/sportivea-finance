@@ -65,7 +65,9 @@ Respond ONLY with a JSON array (no markdown, no explanation):
       messages: [{ role: 'user', content: prompt }],
     })
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+    // Strip markdown code fences if Claude wrapped the JSON
+    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
     const suggestions = JSON.parse(text)
 
     // Persist Claude suggestions back to DB
