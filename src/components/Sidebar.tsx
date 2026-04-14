@@ -13,6 +13,8 @@ import {
   LogOut,
   FileText,
   Waves,
+  Sparkles,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -45,8 +47,17 @@ const navItems = [
     children: [
       { href: '/invoices',         label: 'Vydané (příjmy)' },
       { href: '/invoices/expense', label: 'Přijaté (náklady)' },
-      { href: '/invoices/upload',  label: 'AI Upload faktury' },
     ],
+  },
+  {
+    href: '/invoices/upload',
+    label: 'AI Upload faktur',
+    icon: Sparkles,
+  },
+  {
+    href: '/banking',
+    label: 'Párování faktur',
+    icon: Link2,
   },
   {
     href: '/cashflow',
