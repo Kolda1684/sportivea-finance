@@ -66,9 +66,10 @@ Respond ONLY with a JSON array (no markdown, no explanation):
     })
 
     const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-    // Strip markdown code fences if Claude wrapped the JSON
-    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-    const suggestions = JSON.parse(text)
+    // Extract the JSON array — robust against markdown fences and extra prose
+    const match = raw.match(/\[[\s\S]*\]/)
+    if (!match) throw new Error('Claude nevrátil JSON pole')
+    const suggestions = JSON.parse(match[0])
 
     // Persist Claude suggestions back to DB
     for (const s of suggestions) {
