@@ -28,6 +28,9 @@ interface JournalEntry {
   message: string | null
   type: 'income' | 'expense'
   status: string
+  match_zone: string | null
+  match_confidence: number | null
+  match_method: string | null
   account_id: string | null
   invoices?: { number: string; subject_name: string } | null
   expense_invoices?: { supplier_name: string } | null
@@ -35,6 +38,22 @@ interface JournalEntry {
 
 function fmtCZK(n: number) {
   return n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function MatchBadge({ entry }: { entry: JournalEntry }) {
+  const { status, match_zone, match_confidence, match_method } = entry
+  if (status === 'matched' || match_zone === 'auto') {
+    return <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium" title={match_method ?? ''}>✓ Jistá</span>
+  }
+  if (match_zone === 'suggest') {
+    const conf = match_confidence ?? 0
+    const label = conf >= 60 ? 'Pravděpodobná' : 'Ke kontrole'
+    return <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 text-yellow-800 px-2 py-0.5 text-xs font-medium" title={match_method ?? ''}>{conf}% {label}</span>
+  }
+  if (match_zone === 'manual') {
+    return <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-medium" title={match_method ?? ''}>? Nezjistit</span>
+  }
+  return null
 }
 
 function entryDescription(e: JournalEntry): string {
@@ -196,6 +215,7 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
             <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Příjmy</th>
             <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Výdaje</th>
             <th className="px-3 py-2 text-right text-gray-500 w-32 border border-gray-200">Zůstatek</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-28 border border-gray-200">Shoda</th>
             <th className="px-3 py-2 text-left text-gray-400 w-24 border border-gray-200 bg-gray-50">VS</th>
             <th className="px-3 py-2 text-left text-gray-400 w-36 border border-gray-200 bg-gray-50">Protiúčet</th>
           </tr>
@@ -247,6 +267,9 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
                 )}>
                   {fmtCZK(r.balance)}
                 </td>
+                <td className="px-2 py-1 border border-gray-200">
+                  <MatchBadge entry={r.entry} />
+                </td>
                 <td className="px-2 py-1 font-mono text-gray-400 border border-gray-200 bg-gray-50/50" title={r.entry.variable_symbol ?? ''}>
                   {r.entry.variable_symbol ?? ''}
                 </td>
@@ -269,6 +292,7 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
             <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 text-right font-bold text-gray-900 border border-gray-200">{fmtCZK(account.starting_balance)}</td>
+            <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 border border-gray-200 bg-gray-50/50" />
             <td className="px-3 py-2 border border-gray-200 bg-gray-50/50" />
           </tr>
@@ -277,10 +301,11 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
           <tfoot className="bg-gray-50 font-semibold">
             <tr>
               <td colSpan={4} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
+
               <td className="px-3 py-2 text-right text-green-700 tabular-nums border border-gray-300">{fmtCZK(totalIncome)}</td>
               <td className="px-3 py-2 text-right text-red-600 tabular-nums border border-gray-300">{fmtCZK(totalExpense)}</td>
               <td className="px-3 py-2 text-right text-gray-900 tabular-nums border border-gray-300">{fmtCZK(finalBalance)}</td>
-              <td className="px-3 py-2 border border-gray-300 bg-gray-100" colSpan={2} />
+              <td className="px-3 py-2 border border-gray-300 bg-gray-100" colSpan={3} />
             </tr>
           </tfoot>
         )}
