@@ -69,19 +69,18 @@ export async function POST(req: NextRequest) {
     file.type === 'application/pdf' ||
     file.name?.toLowerCase().endsWith('.pdf')
 
-  // Kompresuj obrázky přes 4 MB — Claude API limit je 5 MB
-  const MAX_IMAGE_BYTES = 4 * 1024 * 1024
-  if (!isPdf && imageBuffer.length > MAX_IMAGE_BYTES) {
+  // Kompresuj VŽDY u obrázků — Claude API limit je 5 MB (base64 nafukuje o ~33 %)
+  if (!isPdf) {
     imageBuffer = await sharp(imageBuffer)
-      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 82 })
+      .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
       .toBuffer()
   }
 
   const base64 = imageBuffer.toString('base64')
 
-  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-  const imageType = SUPPORTED_IMAGE_TYPES.includes(file.type) ? file.type : 'image/jpeg'
+  // Po kompresi je vždy JPEG
+  const imageType = isPdf ? 'image/jpeg' : 'image/jpeg'
 
   const fileBlock = isPdf
     ? ({
