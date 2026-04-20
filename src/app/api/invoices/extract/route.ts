@@ -62,7 +62,14 @@ export async function POST(req: NextRequest) {
 
   const bytes = await file.arrayBuffer()
   const base64 = Buffer.from(bytes).toString('base64')
-  const isPdf = file.type === 'application/pdf'
+
+  // Detekuj PDF podle MIME typu nebo přípony souboru (file.type bývá prázdný na serveru)
+  const isPdf =
+    file.type === 'application/pdf' ||
+    file.name?.toLowerCase().endsWith('.pdf')
+
+  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  const imageType = SUPPORTED_IMAGE_TYPES.includes(file.type) ? file.type : 'image/jpeg'
 
   const fileBlock = isPdf
     ? ({
@@ -73,19 +80,26 @@ export async function POST(req: NextRequest) {
         type: 'image' as const,
         source: {
           type: 'base64' as const,
-          media_type: (file.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+          media_type: imageType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
           data: base64,
         },
       })
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
-    })
+    const response = isPdf
+      ? await client.beta.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          betas: ['pdfs-2024-09-25'],
+          messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
+        })
+      : await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
+        })
 
-    const text = message.content[0].type === 'text' ? message.content[0].text : ''
+    const text = response.content[0].type === 'text' ? response.content[0].text : ''
     const clean = text.replace(/```json|```/g, '').trim()
     const jsonMatch = clean.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('Claude nevrátil validní JSON')
