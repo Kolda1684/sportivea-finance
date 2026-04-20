@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   // Hlavička CSV (UTF-8 BOM)
   const BOM = '\uFEFF'
-  const header = 'Řádek;Datum;Číslo dokladu;Popis;Příjmy;Výdaje;Zůstatek;Měna;Původní částka;Kurz;Účet'
+  const header = 'Řádek;Datum;Číslo dokladu;Popis;Příjmy;Výdaje;Zůstatek;VS;Protiúčet;Měna;Původní částka;Kurz;Účet'
   const rows: string[] = []
   let idx = 1
 
@@ -102,6 +102,8 @@ export async function GET(req: NextRequest) {
       income,
       expense,
       fmtNum(balance),
+      tx.variable_symbol ?? '',
+      tx.counterparty_name ?? '',
       tx.currency ?? 'CZK',
       origAmount,
       rate,

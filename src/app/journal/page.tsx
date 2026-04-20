@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Settings2, Download, RefreshCw, GitMerge } from 'lucide-react'
+import { Settings2, Download, RefreshCw, GitMerge, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -191,13 +191,13 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
           <tr>
             <th className="px-3 py-2 text-left text-gray-500 w-8 border border-gray-200">#</th>
             <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Datum</th>
-            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Doklad</th>
-            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">VS</th>
+            <th className="px-3 py-2 text-left text-gray-500 w-24 border border-gray-200">Č.dokl.</th>
             <th className="px-3 py-2 text-left text-gray-500 border border-gray-200">Popis</th>
-            <th className="px-3 py-2 text-left text-gray-500 w-36 border border-gray-200">Protiúčet</th>
             <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Příjmy</th>
             <th className="px-3 py-2 text-right text-gray-500 w-28 border border-gray-200">Výdaje</th>
             <th className="px-3 py-2 text-right text-gray-500 w-32 border border-gray-200">Zůstatek</th>
+            <th className="px-3 py-2 text-left text-gray-400 w-24 border border-gray-200 bg-gray-50">VS</th>
+            <th className="px-3 py-2 text-left text-gray-400 w-36 border border-gray-200 bg-gray-50">Protiúčet</th>
           </tr>
         </thead>
         <tbody>
@@ -208,6 +208,7 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
               </td>
             </tr>
           )}
+
 
           {displayRows.map(r => {
             const isTransfer = r.description.toLowerCase().includes('převod')
@@ -224,24 +225,14 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
                   <InlineCell
                     mono
                     value={docNumber}
-                    onSave={v => saveField(r.entry.id, 'counterparty_name', v)}
+                    onSave={v => saveField(r.entry.id, 'invoice_number', v)}
                     className="text-gray-500"
                   />
-                </td>
-                <td className="px-2 py-1 font-mono text-gray-400 border border-gray-200" title={r.entry.variable_symbol ?? ''}>
-                  {r.entry.variable_symbol ?? '—'}
                 </td>
                 <td className="px-2 py-1 border border-gray-200">
                   <InlineCell
                     value={r.description}
                     onSave={v => saveField(r.entry.id, 'message', v)}
-                  />
-                </td>
-                <td className="px-2 py-1 border border-gray-200">
-                  <InlineCell
-                    value={counterparty}
-                    onSave={v => saveField(r.entry.id, 'counterparty_name', v)}
-                    className="text-gray-500"
                   />
                 </td>
                 <td className="px-3 py-1.5 text-right text-green-700 font-medium tabular-nums border border-gray-200">
@@ -256,6 +247,16 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
                 )}>
                   {fmtCZK(r.balance)}
                 </td>
+                <td className="px-2 py-1 font-mono text-gray-400 border border-gray-200 bg-gray-50/50" title={r.entry.variable_symbol ?? ''}>
+                  {r.entry.variable_symbol ?? ''}
+                </td>
+                <td className="px-2 py-1 border border-gray-200 bg-gray-50/50">
+                  <InlineCell
+                    value={counterparty}
+                    onSave={v => saveField(r.entry.id, 'counterparty_name', v)}
+                    className="text-gray-500"
+                  />
+                </td>
               </tr>
             )
           })}
@@ -264,21 +265,22 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
             <td className="px-3 py-2 text-gray-400 border border-gray-200" />
             <td className="px-3 py-2 text-gray-400 border border-gray-200" />
             <td className="px-3 py-2 font-mono text-gray-400 text-center border border-gray-200">x</td>
-            <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 font-semibold text-gray-700 border border-gray-200">Počáteční stav</td>
             <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 border border-gray-200" />
-            <td className="px-3 py-2 border border-gray-200" />
             <td className="px-3 py-2 text-right font-bold text-gray-900 border border-gray-200">{fmtCZK(account.starting_balance)}</td>
+            <td className="px-3 py-2 border border-gray-200 bg-gray-50/50" />
+            <td className="px-3 py-2 border border-gray-200 bg-gray-50/50" />
           </tr>
         </tbody>
         {rows.length > 0 && (
           <tfoot className="bg-gray-50 font-semibold">
             <tr>
-              <td colSpan={6} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
+              <td colSpan={4} className="px-3 py-2 text-gray-700 text-xs border border-gray-300">CELKEM {year}</td>
               <td className="px-3 py-2 text-right text-green-700 tabular-nums border border-gray-300">{fmtCZK(totalIncome)}</td>
               <td className="px-3 py-2 text-right text-red-600 tabular-nums border border-gray-300">{fmtCZK(totalExpense)}</td>
               <td className="px-3 py-2 text-right text-gray-900 tabular-nums border border-gray-300">{fmtCZK(finalBalance)}</td>
+              <td className="px-3 py-2 border border-gray-300 bg-gray-100" colSpan={2} />
             </tr>
           </tfoot>
         )}
@@ -398,6 +400,7 @@ export default function JournalPage() {
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [matching, setMatching] = useState(false)
+  const [aiMatching, setAiMatching] = useState(false)
 
   async function fetchData() {
     setLoading(true)
@@ -438,6 +441,22 @@ export default function JournalPage() {
       alert(e instanceof Error ? e.message : 'Chyba párování')
     } finally {
       setMatching(false)
+    }
+  }
+
+  async function handleAiMatch() {
+    setAiMatching(true)
+    try {
+      const res = await fetch('/api/banking/match-ai', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'AI chyba')
+      const matched = (data.suggestions ?? []).filter((s: { invoice_id: string | null; confidence: number }) => s.invoice_id && s.confidence >= 30).length
+      alert(`AI párování dokončeno:\n${matched} návrhů přidáno ke kontrole`)
+      await fetchData()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Chyba AI párování')
+    } finally {
+      setAiMatching(false)
     }
   }
 
@@ -492,6 +511,10 @@ export default function JournalPage() {
           <Button variant="outline" size="sm" onClick={handleMatch} disabled={matching}>
             <GitMerge className={cn('h-4 w-4 mr-1.5', matching && 'animate-pulse')} />
             {matching ? 'Páruji…' : 'Spárovat faktury'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleAiMatch} disabled={aiMatching} className="border-purple-200 text-purple-700 hover:bg-purple-50">
+            <Sparkles className={cn('h-4 w-4 mr-1.5', aiMatching && 'animate-spin')} />
+            {aiMatching ? 'AI páruje…' : 'AI párování'}
           </Button>
           <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
             <RefreshCw className={cn('h-4 w-4 mr-1.5', syncing && 'animate-spin')} />

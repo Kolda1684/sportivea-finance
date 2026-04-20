@@ -8,15 +8,14 @@ import { createAdminSupabaseClient } from '@/lib/supabase-server'
 export async function POST() {
   const supabase = createAdminSupabaseClient()
 
-  // Load manual/pending_review transactions (not already auto-matched)
+  // Load unmatched/pending transactions — all that haven't been auto-confirmed yet
   const { data: txs, error: txErr } = await supabase
     .from('bank_transactions')
     .select('id, date, amount_czk, currency, variable_symbol, message, counterparty_name, status, match_zone')
     .eq('type', 'income')
     .in('status', ['unmatched', 'pending_review'])
-    .eq('match_zone', 'manual')
     .order('date', { ascending: false })
-    .limit(30)
+    .limit(50)
 
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 })
   if (!txs || txs.length === 0) return NextResponse.json({ suggestions: [], total: 0 })

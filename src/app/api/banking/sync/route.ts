@@ -15,8 +15,8 @@ function today(): string {
 
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const dateFrom = searchParams.get('from') ?? daysAgo(90)
-  const dateTo   = searchParams.get('to')   ?? today()
+  const forceDateFrom = searchParams.get('from')
+  const dateTo = searchParams.get('to') ?? today()
 
   const tokens: { envKey: string; token: string }[] = []
   if (process.env.FIO_ucet_1) tokens.push({ envKey: 'FIO_ucet_1', token: process.env.FIO_ucet_1 })
@@ -30,6 +30,31 @@ export async function POST(req: NextRequest) {
   const results: { account: string; imported: number; skipped: number; errors: string[] }[] = []
 
   for (const { envKey, token } of tokens) {
+    // Pokus se najít účet podle envKey (name) — pak víme account_id před voláním FIO
+    const { data: existingAccount } = await supabase
+      .from('bank_accounts')
+      .select('id, account_number')
+      .eq('name', envKey)
+      .maybeSingle()
+
+    // Zjisti dateFrom: od data poslední transakce nebo 90 dní zpět při první sync
+    let dateFrom: string
+    if (forceDateFrom) {
+      dateFrom = forceDateFrom
+    } else if (existingAccount) {
+      const { data: latestTx } = await supabase
+        .from('bank_transactions')
+        .select('date')
+        .eq('account_id', existingAccount.id)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      dateFrom = latestTx?.date ?? daysAgo(90)
+    } else {
+      dateFrom = daysAgo(90)
+    }
+
+    // Jediné volání FIO API
     let statement
     try {
       statement = await fetchFioFull(token, dateFrom, dateTo)
@@ -40,21 +65,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { info, transactionList } = statement
+    const { info } = statement
     const accountNumber = `${info.accountId}/${info.bankId}`
 
     // Najdi nebo vytvoř bank_account
-    let { data: account } = await supabase
-      .from('bank_accounts')
-      .select('id')
-      .eq('account_number', accountNumber)
-      .single()
-
+    let account = existingAccount
     if (!account) {
       const { data: created, error: createErr } = await supabase
         .from('bank_accounts')
         .insert({ name: envKey, account_number: accountNumber, starting_balance: 0 })
-        .select('id')
+        .select('id, account_number')
         .single()
       if (createErr || !created) {
         return NextResponse.json({ error: `Nepodařilo se vytvořit účet: ${createErr?.message}` }, { status: 500 })
@@ -62,6 +82,7 @@ export async function POST(req: NextRequest) {
       account = created
     }
 
+    const { transactionList } = statement
     const txs = transactionList.transaction ?? []
     let imported = 0
     let skipped = 0
@@ -98,5 +119,5 @@ export async function POST(req: NextRequest) {
     results.push({ account: accountNumber, imported, skipped, errors: errors.slice(0, 5) })
   }
 
-  return NextResponse.json({ ok: true, dateFrom, dateTo, results })
+  return NextResponse.json({ ok: true, dateTo, results })
 }
