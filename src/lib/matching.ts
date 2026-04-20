@@ -93,9 +93,9 @@ export async function matchTransaction(
   const txAmount = tx.amount_czk ?? Math.abs(tx.amount)
   const txDate = new Date(tx.date)
 
-  // Pouze nezaplacené faktury vydané max 6 měsíců zpět
+  // Všechny faktury kromě stornovaných, vydané max 6 měsíců zpět
   const candidates = invoices.filter(inv => {
-    if (inv.status === 'paid' || inv.status === 'cancelled') return false
+    if (inv.status === 'cancelled') return false
     if (!inv.issued_on) return false
     return differenceInDays(tx.date, inv.issued_on) <= 180
   })

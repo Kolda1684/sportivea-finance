@@ -30,11 +30,10 @@ export async function POST() {
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 })
   if (!txs || txs.length === 0) return NextResponse.json({ total: 0, auto: 0, suggest: 0, manual: 0 })
 
-  // Načti nezaplacené faktury
+  // Načti všechny faktury kromě stornovaných — chceme párovat i zaplacené
   const { data: invoices, error: invErr } = await supabase
     .from('invoices')
     .select('id, number, subject_name, issued_on, due_on, total, currency, status, variable_symbol')
-    .not('status', 'eq', 'paid')
     .not('status', 'eq', 'cancelled')
 
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })

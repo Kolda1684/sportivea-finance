@@ -18,8 +18,7 @@ export async function POST() {
 
   const { data: invoices, error: invErr } = await supabase
     .from('invoices')
-    .select('id, number, subject_name, issued_on, due_on, total, currency, variable_symbol')
-    .not('status', 'eq', 'paid')
+    .select('id, number, subject_name, issued_on, due_on, total, currency, variable_symbol, status')
     .not('status', 'eq', 'cancelled')
 
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
