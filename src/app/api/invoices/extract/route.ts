@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import sharp from 'sharp'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -60,13 +61,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Soubor je příliš velký. Maximum je ${MAX_MB} MB.` }, { status: 400 })
   }
 
-  const bytes = await file.arrayBuffer()
-  const base64 = Buffer.from(bytes).toString('base64')
+  const rawBytes = Buffer.from(await file.arrayBuffer())
+  let imageBuffer: Buffer = rawBytes
 
   // Detekuj PDF podle MIME typu nebo přípony souboru (file.type bývá prázdný na serveru)
   const isPdf =
     file.type === 'application/pdf' ||
     file.name?.toLowerCase().endsWith('.pdf')
+
+  // Kompresuj obrázky přes 4 MB — Claude API limit je 5 MB
+  const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+  if (!isPdf && imageBuffer.length > MAX_IMAGE_BYTES) {
+    imageBuffer = await sharp(imageBuffer)
+      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82 })
+      .toBuffer()
+  }
+
+  const base64 = imageBuffer.toString('base64')
 
   const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
   const imageType = SUPPORTED_IMAGE_TYPES.includes(file.type) ? file.type : 'image/jpeg'
