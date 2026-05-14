@@ -127,21 +127,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Root přesměrování
+  // Načti roli (potřeba pro root redirect i pro admin-only routes)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const role = profile?.role ?? 'editor'
+
+  // Root přesměrování — admin jde na dashboard, editor na tasky
   if (pathname === '/') {
-    return NextResponse.redirect(new URL('/tasks', request.url))
+    return NextResponse.redirect(new URL(role === 'admin' ? '/dashboard' : '/tasks', request.url))
   }
 
   // Zkontroluj roli pro admin-only routes
   if (isAdminOnlyRoute(pathname) || isAdminOnlyApiRoute(pathname)) {
-    // Načti roli z profiles tabulky
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    const role = profile?.role ?? 'editor'
 
     if (role !== 'admin') {
       if (pathname.startsWith('/api/')) {
