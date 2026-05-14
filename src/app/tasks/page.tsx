@@ -1,413 +1,645 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Filter, ChevronDown, Clock, CheckCircle2, Circle, AlertCircle, Loader2, X, Calendar, User } from 'lucide-react'
-import type { Task, TaskStatus } from '@/types'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Plus, Loader2, ChevronDown, X, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const STATUS_CONFIG: Record<TaskStatus, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
-  zadano: { label: 'Zadáno', icon: Circle, color: 'text-gray-400' },
-  v_procesu: { label: 'V procesu', icon: AlertCircle, color: 'text-blue-500' },
-  na_checku: { label: 'Na checku', icon: Clock, color: 'text-amber-500' },
-  hotovo: { label: 'Hotovo', icon: CheckCircle2, color: 'text-green-500' },
+type TaskStatus = 'zadano' | 'v_procesu' | 'na_checku' | 'hotovo'
+
+interface Task {
+  id: string
+  title: string
+  deadline: string | null
+  status: TaskStatus
+  client: string | null
+  company_id: string | null
+  hours: number
+  minutes: number
+  reward: number | null
+  one_time_reward: number | null
+  task_type: string | null
+  month: string | null
+  assignee_id: string | null
+  assignee?: { id: string; name: string } | null
+}
+
+interface Profile { id: string; name: string; role: string }
+interface Company { id: string; name: string }
+
+const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; dot: string }> = {
+  zadano:    { label: 'Not Started', color: 'bg-gray-100 text-gray-500',   dot: 'bg-gray-400' },
+  v_procesu: { label: 'V procesu',   color: 'bg-blue-50 text-blue-600',    dot: 'bg-blue-500' },
+  na_checku: { label: 'Na checku',   color: 'bg-orange-50 text-orange-600',dot: 'bg-orange-400' },
+  hotovo:    { label: 'Hotovo',      color: 'bg-green-50 text-green-600',  dot: 'bg-green-500' },
 }
 
 const TASK_TYPES = ['Reels', 'Daily', 'Long-form', 'Natáčení', 'Grafika', 'Captions', 'Stories', 'YouTube', 'Jiné']
+const STATUSES = Object.keys(STATUS_CONFIG) as TaskStatus[]
 
-const STATUS_PILL_COLORS: Record<TaskStatus, string> = {
-  zadano: 'bg-gray-100 text-gray-600',
-  v_procesu: 'bg-blue-100 text-blue-700',
-  na_checku: 'bg-amber-100 text-amber-700',
-  hotovo: 'bg-green-100 text-green-700',
+// ────────────────────────────────────────────────────────────
+// Inline editovatelná buňka
+// ────────────────────────────────────────────────────────────
+function Cell({
+  value,
+  type = 'text',
+  options,
+  placeholder = '—',
+  onSave,
+  className = '',
+  readOnly = false,
+}: {
+  value: string | number | null
+  type?: 'text' | 'number' | 'date' | 'select'
+  options?: string[]
+  placeholder?: string
+  onSave?: (v: string) => void
+  className?: string
+  readOnly?: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(String(value ?? ''))
+  const inputRef = useRef<HTMLInputElement & HTMLSelectElement>(null)
+
+  useEffect(() => { setDraft(String(value ?? '')) }, [value])
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  function commit(val: string) {
+    setEditing(false)
+    if (val !== String(value ?? '') && onSave) onSave(val)
+  }
+
+  function displayValue() {
+    if (value === null || value === '' || value === undefined) return null
+    if (type === 'date') {
+      return new Date(String(value)).toLocaleDateString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    }
+    return String(value)
+  }
+
+  if (readOnly) {
+    return (
+      <div className={cn('px-2 py-1.5 text-sm text-gray-400', className)}>
+        {displayValue() ?? placeholder}
+      </div>
+    )
+  }
+
+  if (!editing) {
+    return (
+      <div
+        onClick={() => setEditing(true)}
+        className={cn(
+          'px-2 py-1.5 text-sm cursor-text rounded hover:bg-gray-50 min-h-[30px] flex items-center',
+          !displayValue() && 'text-gray-300',
+          className
+        )}
+      >
+        {displayValue() ?? placeholder}
+      </div>
+    )
+  }
+
+  if (type === 'select' && options) {
+    return (
+      <select
+        ref={inputRef}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={e => commit(e.target.value)}
+        className="w-full px-2 py-1.5 text-sm border-0 outline-none bg-white focus:ring-1 focus:ring-blue-400 rounded"
+      >
+        <option value="">—</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    )
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type={type}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') commit(draft)
+        if (e.key === 'Escape') { setDraft(String(value ?? '')); setEditing(false) }
+      }}
+      className="w-full px-2 py-1.5 text-sm border-0 outline-none bg-white focus:ring-1 focus:ring-blue-400 rounded"
+    />
+  )
 }
 
-interface NewTaskForm {
-  title: string
-  deadline: string
-  assignee_id: string
-  client: string
-  task_type: string
-  reward: string
-  one_time_reward: string
-  hours: string
-  minutes: string
-  description: string
+// Status badge s dropdownem
+function StatusCell({ value, onSave, readOnly }: { value: TaskStatus; onSave?: (v: TaskStatus) => void; readOnly?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const cfg = STATUS_CONFIG[value]
+
+  if (readOnly) {
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium', cfg.color)}>
+        <span className={cn('h-1.5 w-1.5 rounded-full', cfg.dot)} />
+        {cfg.label}
+      </span>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium hover:opacity-80 transition-opacity', cfg.color)}
+      >
+        <span className={cn('h-1.5 w-1.5 rounded-full', cfg.dot)} />
+        {cfg.label}
+        <ChevronDown className="h-3 w-3 opacity-50" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full mt-1 z-20 bg-white border rounded-lg shadow-lg py-1 min-w-[140px]">
+            {STATUSES.map(s => (
+              <button
+                key={s}
+                onClick={() => { onSave?.(s); setOpen(false) }}
+                className={cn(
+                  'w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-gray-50',
+                  s === value && 'bg-gray-50'
+                )}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', STATUS_CONFIG[s].dot)} />
+                {STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
+// Klient dropdown (z CRM companies)
+function ClientCell({
+  value,
+  companies,
+  onSave,
+  readOnly,
+}: {
+  value: string | null
+  companies: Company[]
+  onSave?: (v: string) => void
+  readOnly?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+
+  if (readOnly) {
+    return <div className="px-2 py-1.5 text-sm text-gray-400">{value ?? '—'}</div>
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'px-2 py-1.5 text-sm rounded hover:bg-gray-50 w-full text-left flex items-center gap-1',
+          !value && 'text-gray-300'
+        )}
+      >
+        {value || '—'}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full mt-1 z-20 bg-white border rounded-lg shadow-lg py-1 min-w-[180px] max-h-48 overflow-y-auto">
+            <button
+              onClick={() => { onSave?.(''); setOpen(false) }}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50"
+            >
+              — žádný klient —
+            </button>
+            {companies.map(c => (
+              <button
+                key={c.id}
+                onClick={() => { onSave?.(c.name); setOpen(false) }}
+                className={cn(
+                  'w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50',
+                  value === c.name && 'font-medium text-gray-900'
+                )}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// Hlavní stránka
+// ────────────────────────────────────────────────────────────
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState<TaskStatus | 'vse'>('vse')
-  const [filterMonth, setFilterMonth] = useState('')
-  const [showNewModal, setShowNewModal] = useState(false)
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [me, setMe] = useState<Profile | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [filterMonth, setFilterMonth] = useState('')
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | ''>('')
+  const [newRowDraft, setNewRowDraft] = useState<{ title: string; assignee_id: string } | null>(null)
+  const [savingNew, setSavingNew] = useState(false)
+  const [detailTask, setDetailTask] = useState<Task | null>(null)
+  const newTitleRef = useRef<HTMLInputElement>(null)
 
-  const [form, setForm] = useState<NewTaskForm>({
-    title: '', deadline: '', assignee_id: '', client: '', task_type: '',
-    reward: '', one_time_reward: '', hours: '0', minutes: '0', description: '',
-  })
-
-  const fetchTasks = useCallback(async () => {
-    setLoading(true)
-    const params = new URLSearchParams()
-    if (filterStatus !== 'vse') params.set('status', filterStatus)
-    if (filterMonth) params.set('month', filterMonth)
-    const res = await fetch(`/api/tasks?${params}`)
-    if (res.ok) setTasks(await res.json())
-    setLoading(false)
-  }, [filterStatus, filterMonth])
-
-  useEffect(() => { fetchTasks() }, [fetchTasks])
-
+  // Načti aktuálního uživatele a profily
   useEffect(() => {
-    // Zjisti roli přes profiles endpoint
+    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
+      if (data) setMe(data)
+    })
     fetch('/api/admin/users').then(r => {
       if (r.ok) {
         setIsAdmin(true)
         r.json().then(setProfiles)
       }
     })
+    fetch('/api/companies').then(r => r.ok ? r.json() : []).then(setCompanies)
   }, [])
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true)
+  const fetchTasks = useCallback(async () => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (filterMonth) params.set('month', filterMonth)
+    if (filterStatus) params.set('status', filterStatus)
+    const res = await fetch(`/api/tasks?${params}`)
+    if (res.ok) setTasks(await res.json())
+    setLoading(false)
+  }, [filterMonth, filterStatus])
+
+  useEffect(() => { fetchTasks() }, [fetchTasks])
+
+  // Inline update jednoho pole
+  async function updateField(taskId: string, field: string, value: string | number | null) {
+    const body: Record<string, unknown> = { [field]: value }
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updated } : t))
+    }
+  }
+
+  // Vytvoř nový task (inline)
+  async function createTask() {
+    if (!newRowDraft?.title.trim()) {
+      setNewRowDraft(null)
+      return
+    }
+    setSavingNew(true)
     const res = await fetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: form.title,
-        deadline: form.deadline || null,
-        assignee_id: form.assignee_id || null,
-        client: form.client || null,
-        task_type: form.task_type || null,
-        reward: form.reward ? Number(form.reward) : null,
-        one_time_reward: form.one_time_reward ? Number(form.one_time_reward) : null,
-        hours: Number(form.hours) || 0,
-        minutes: Number(form.minutes) || 0,
-        description: form.description || null,
+        title: newRowDraft.title,
+        assignee_id: newRowDraft.assignee_id || me?.id || null,
       }),
     })
-    setSaving(false)
     if (res.ok) {
-      setShowNewModal(false)
-      setForm({ title: '', deadline: '', assignee_id: '', client: '', task_type: '', reward: '', one_time_reward: '', hours: '0', minutes: '0', description: '' })
-      fetchTasks()
+      const task = await res.json()
+      setTasks(prev => [...prev, task])
     }
+    setNewRowDraft(null)
+    setSavingNew(false)
   }
 
-  async function handleStatusChange(taskId: string, newStatus: TaskStatus) {
-    await fetch(`/api/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    })
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
+  function startNewRow() {
+    setNewRowDraft({ title: '', assignee_id: me?.id ?? '' })
+    setTimeout(() => newTitleRef.current?.focus(), 50)
   }
 
-  const totalReward = tasks.filter(t => t.status === 'hotovo').reduce((s, t) => s + (t.reward ?? 0) + (t.one_time_reward ?? 0), 0)
+  // Sumy pro footer
+  const totalReward = tasks.reduce((s, t) => s + (t.reward ?? 0) + (t.one_time_reward ?? 0), 0)
+  const totalHours = tasks.reduce((s, t) => s + (t.hours ?? 0) + (t.minutes ?? 0) / 60, 0)
+  const doneCount = tasks.filter(t => t.status === 'hotovo').length
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Hlavička */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tasky</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{tasks.length} úkolů{isAdmin && ` · ${totalReward.toLocaleString('cs-CZ')} Kč hotovo`}</p>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-6 pt-6 pb-3 border-b bg-white">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-semibold text-gray-900">Tasky</h1>
+          <button
+            onClick={startNewRow}
+            className="flex items-center gap-1.5 bg-gray-900 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Nový task
+          </button>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* Filtry */}
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Filtr měsíc */}
           <input
             type="month"
-            value={filterMonth}
             onChange={e => {
               const val = e.target.value
-              if (val) {
-                const [y, m] = val.split('-')
-                setFilterMonth(`${parseInt(m)},${y}`)
-              } else {
-                setFilterMonth('')
-              }
+              if (val) { const [y, m] = val.split('-'); setFilterMonth(`${parseInt(m)},${y}`) }
+              else setFilterMonth('')
             }}
-            className="text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="text-xs border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400 text-gray-600"
           />
-          {isAdmin && (
-            <button
-              onClick={() => setShowNewModal(true)}
-              className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              Nový task
-            </button>
-          )}
-        </div>
-      </div>
 
-      {/* Status filtry */}
-      <div className="flex gap-2 mb-4">
-        {(['vse', 'zadano', 'v_procesu', 'na_checku', 'hotovo'] as const).map(s => (
-          <button
-            key={s}
-            onClick={() => setFilterStatus(s)}
-            className={cn(
-              'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-              filterStatus === s
-                ? 'bg-gray-900 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            )}
-          >
-            {s === 'vse' ? 'Vše' : STATUS_CONFIG[s].label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tabulka tasků */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-        </div>
-      ) : tasks.length === 0 ? (
-        <div className="text-center py-20 text-gray-400">
-          <CheckCircle2 className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Žádné tasky</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Task</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Deadline</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Klient</th>
-                {isAdmin && <th className="text-right px-4 py-3 font-medium text-gray-500">Odměna</th>}
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Typ</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Editor</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {tasks.map(task => {
-                const StatusIcon = STATUS_CONFIG[task.status].icon
-                return (
-                  <tr
-                    key={task.id}
-                    onClick={() => setSelectedTask(task)}
-                    className="hover:bg-gray-50 cursor-pointer transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <StatusIcon className={cn('h-4 w-4 flex-shrink-0', STATUS_CONFIG[task.status].color)} />
-                        <span className="font-medium text-gray-900">{task.title}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {task.deadline ? new Date(task.deadline).toLocaleDateString('cs-CZ') : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_PILL_COLORS[task.status])}>
-                        {STATUS_CONFIG[task.status].label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{task.client ?? '—'}</td>
-                    {isAdmin && (
-                      <td className="px-4 py-3 text-right font-medium text-gray-900">
-                        {((task.reward ?? 0) + (task.one_time_reward ?? 0)).toLocaleString('cs-CZ')} Kč
-                      </td>
-                    )}
-                    <td className="px-4 py-3">
-                      {task.task_type ? (
-                        <span className="rounded-full bg-purple-100 text-purple-700 px-2 py-0.5 text-xs font-medium">
-                          {task.task_type}
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {(task.assignee as unknown as { name?: string })?.name ?? '—'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Detail tasku */}
-      {selectedTask && (
-        <TaskDetailModal
-          task={selectedTask}
-          isAdmin={isAdmin}
-          onClose={() => setSelectedTask(null)}
-          onStatusChange={handleStatusChange}
-          onRefresh={fetchTasks}
-        />
-      )}
-
-      {/* Nový task modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="font-semibold text-gray-900">Nový task</h2>
-              <button onClick={() => setShowNewModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
+          {/* Filtr status */}
+          <div className="flex gap-1">
+            {(['', ...STATUSES] as (TaskStatus | '')[]).map(s => (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                  filterStatus === s
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                )}
+              >
+                {s === '' ? 'Vše' : STATUS_CONFIG[s].label}
               </button>
-            </div>
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">Název *</label>
-                <input
-                  required
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Název tasku"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Deadline</label>
-                  <input
-                    type="date"
-                    value={form.deadline}
-                    onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Typ</label>
-                  <select
-                    value={form.task_type}
-                    onChange={e => setForm(f => ({ ...f, task_type: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">— vybrat —</option>
-                    {TASK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Klient</label>
-                  <input
-                    value={form.client}
-                    onChange={e => setForm(f => ({ ...f, client: e.target.value }))}
-                    placeholder="Fortuna liga žen"
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Přiřadit</label>
-                  <select
-                    value={form.assignee_id}
-                    onChange={e => setForm(f => ({ ...f, assignee_id: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">— vybrat —</option>
-                    {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Odměna (Kč)</label>
-                  <input
-                    type="number"
-                    value={form.reward}
-                    onChange={e => setForm(f => ({ ...f, reward: e.target.value }))}
-                    placeholder="0"
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Jednorázová odměna</label>
-                  <input
-                    type="number"
-                    value={form.one_time_reward}
-                    onChange={e => setForm(f => ({ ...f, one_time_reward: e.target.value }))}
-                    placeholder="0"
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Hodiny</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.hours}
-                    onChange={e => setForm(f => ({ ...f, hours: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Minuty</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={form.minutes}
-                    onChange={e => setForm(f => ({ ...f, minutes: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">Popis</label>
-                <textarea
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  rows={3}
-                  placeholder="Volitelný popis tasku..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewModal(false)}
-                  className="flex-1 border rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
-                >
-                  Zrušit
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1 bg-gray-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Vytvořit
-                </button>
-              </div>
-            </form>
+            ))}
           </div>
         </div>
+      </div>
+
+      {/* Tabulka */}
+      <div className="flex-1 overflow-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
+        ) : (
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b bg-gray-50/80 sticky top-0 z-10">
+                <th className="text-left px-3 py-2 font-medium text-gray-400 text-xs w-8">#</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs min-w-[200px]">Task</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[110px]">Deadline</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[160px]">Klient</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[100px]">Typ</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[60px]">Hod.</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[60px]">Min.</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Měsíc</th>
+                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[130px]">Status</th>
+                {isAdmin && <>
+                  <th className="text-right px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Jednor.</th>
+                  <th className="text-right px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Odměna</th>
+                  <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[110px]">Editor</th>
+                </>}
+                <th className="w-8" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {tasks.map((task, i) => (
+                <tr key={task.id} className="group hover:bg-gray-50/50 transition-colors">
+                  {/* Číslo */}
+                  <td className="px-3 py-0.5 text-xs text-gray-300 select-none">{i + 1}</td>
+
+                  {/* Název */}
+                  <td className="px-1 py-0.5">
+                    <div className="flex items-center gap-1">
+                      <Cell
+                        value={task.title}
+                        onSave={v => updateField(task.id, 'title', v)}
+                        placeholder="Název tasku"
+                        className="flex-1 font-medium text-gray-900"
+                      />
+                      <button
+                        onClick={() => setDetailTask(task)}
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-opacity flex-shrink-0 p-1"
+                        title="Detail"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+
+                  {/* Deadline */}
+                  <td className="px-1 py-0.5">
+                    <Cell
+                      value={task.deadline}
+                      type="date"
+                      onSave={v => updateField(task.id, 'deadline', v || null)}
+                      placeholder="—"
+                      className="text-gray-500"
+                    />
+                  </td>
+
+                  {/* Klient */}
+                  <td className="px-1 py-0.5">
+                    <ClientCell
+                      value={task.client}
+                      companies={companies}
+                      onSave={v => updateField(task.id, 'client', v || null)}
+                    />
+                  </td>
+
+                  {/* Typ */}
+                  <td className="px-1 py-0.5">
+                    <Cell
+                      value={task.task_type}
+                      type="select"
+                      options={TASK_TYPES}
+                      onSave={v => updateField(task.id, 'task_type', v || null)}
+                      placeholder="—"
+                      className="text-gray-500"
+                    />
+                  </td>
+
+                  {/* Hodiny */}
+                  <td className="px-1 py-0.5">
+                    <Cell
+                      value={task.hours || null}
+                      type="number"
+                      onSave={v => updateField(task.id, 'hours', v ? Number(v) : 0)}
+                      placeholder="0"
+                      className="text-gray-700 text-right"
+                    />
+                  </td>
+
+                  {/* Minuty */}
+                  <td className="px-1 py-0.5">
+                    <Cell
+                      value={task.minutes || null}
+                      type="number"
+                      onSave={v => updateField(task.id, 'minutes', v ? Number(v) : 0)}
+                      placeholder="0"
+                      className="text-gray-700 text-right"
+                    />
+                  </td>
+
+                  {/* Měsíc */}
+                  <td className="px-2 py-0.5 text-xs text-gray-400">{task.month ?? '—'}</td>
+
+                  {/* Status */}
+                  <td className="px-1 py-0.5">
+                    <StatusCell
+                      value={task.status}
+                      onSave={v => updateField(task.id, 'status', v)}
+                    />
+                  </td>
+
+                  {/* Admin-only sloupce */}
+                  {isAdmin && <>
+                    <td className="px-1 py-0.5">
+                      <Cell
+                        value={task.one_time_reward || null}
+                        type="number"
+                        onSave={v => updateField(task.id, 'one_time_reward', v ? Number(v) : null)}
+                        placeholder="0"
+                        className="text-right text-gray-700"
+                      />
+                    </td>
+                    <td className="px-1 py-0.5">
+                      <Cell
+                        value={task.reward || null}
+                        type="number"
+                        onSave={v => updateField(task.id, 'reward', v ? Number(v) : null)}
+                        placeholder="0"
+                        className="text-right font-medium text-gray-900"
+                      />
+                    </td>
+                    <td className="px-2 py-0.5 text-xs text-gray-400">
+                      {task.assignee?.name ?? '—'}
+                    </td>
+                  </>}
+
+                  {/* Smazat (admin) */}
+                  <td className="px-1 py-0.5">
+                    {isAdmin && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Smazat task?')) return
+                          await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' })
+                          setTasks(prev => prev.filter(t => t.id !== task.id))
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-opacity p-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+
+              {/* Nový task – inline řádek */}
+              {newRowDraft !== null && (
+                <tr className="bg-blue-50/30">
+                  <td className="px-3 py-0.5 text-xs text-gray-300">—</td>
+                  <td className="px-1 py-1" colSpan={isAdmin ? 8 : 7}>
+                    <input
+                      ref={newTitleRef}
+                      value={newRowDraft.title}
+                      onChange={e => setNewRowDraft(d => d ? { ...d, title: e.target.value } : d)}
+                      onBlur={createTask}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') createTask()
+                        if (e.key === 'Escape') setNewRowDraft(null)
+                      }}
+                      placeholder="Název tasku… (Enter pro uložení)"
+                      className="w-full px-2 py-1 text-sm bg-white border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 font-medium"
+                    />
+                  </td>
+                  {isAdmin && (
+                    <td className="px-1 py-1">
+                      <select
+                        value={newRowDraft.assignee_id}
+                        onChange={e => setNewRowDraft(d => d ? { ...d, assignee_id: e.target.value } : d)}
+                        className="w-full border rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      >
+                        <option value="">— editor —</option>
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </td>
+                  )}
+                  <td>
+                    {savingNew && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400 mx-auto" />}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+
+            {/* Footer se sumami */}
+            {tasks.length > 0 && (
+              <tfoot>
+                <tr className="border-t bg-gray-50/80">
+                  <td className="px-3 py-2" />
+                  <td className="px-2 py-2 text-xs text-gray-400">
+                    COUNT <span className="font-semibold text-gray-600">{tasks.length}</span>
+                    <span className="ml-2 text-green-600">{doneCount} hotovo</span>
+                  </td>
+                  <td colSpan={4} />
+                  <td className="px-2 py-2 text-xs text-gray-400 text-right">
+                    SUM <span className="font-semibold text-gray-600">{totalHours.toFixed(1)} h</span>
+                  </td>
+                  <td />
+                  <td />
+                  {isAdmin && <>
+                    <td />
+                    <td className="px-2 py-2 text-xs text-right">
+                      SUM <span className="font-semibold text-gray-800">{totalReward.toLocaleString('cs-CZ')} Kč</span>
+                    </td>
+                    <td />
+                  </>}
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        )}
+
+        {/* + Nový task dole */}
+        {!newRowDraft && (
+          <button
+            onClick={startNewRow}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors w-full text-left border-t"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Nový task
+          </button>
+        )}
+      </div>
+
+      {/* Detail / komentáře modal */}
+      {detailTask && (
+        <TaskDetailModal
+          task={detailTask}
+          isAdmin={isAdmin}
+          onClose={() => setDetailTask(null)}
+        />
       )}
     </div>
   )
 }
 
+// ────────────────────────────────────────────────────────────
+// Task detail modal (komentáře)
+// ────────────────────────────────────────────────────────────
 function TaskDetailModal({
   task,
   isAdmin,
   onClose,
-  onStatusChange,
-  onRefresh,
 }: {
   task: Task
   isAdmin: boolean
   onClose: () => void
-  onStatusChange: (id: string, status: TaskStatus) => void
-  onRefresh: () => void
 }) {
   const [comment, setComment] = useState('')
   const [comments, setComments] = useState<{ id: string; author_name: string | null; content: string; created_at: string }[]>([])
   const [loadingComments, setLoadingComments] = useState(true)
-  const [sendingComment, setSendingComment] = useState(false)
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     fetch(`/api/tasks/${task.id}`).then(r => r.json()).then(data => {
@@ -419,129 +651,91 @@ function TaskDetailModal({
   async function sendComment(e: React.FormEvent) {
     e.preventDefault()
     if (!comment.trim()) return
-    setSendingComment(true)
+    setSending(true)
     const res = await fetch(`/api/tasks/${task.id}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: comment }),
     })
     if (res.ok) {
-      const newComment = await res.json()
-      setComments(prev => [...prev, newComment])
+      const c = await res.json()
+      setComments(prev => [...prev, c])
       setComment('')
     }
-    setSendingComment(false)
+    setSending(false)
   }
 
-  const totalTime = (task.hours ?? 0) + (task.minutes ?? 0) / 60
   const totalReward = (task.reward ?? 0) + (task.one_time_reward ?? 0)
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-start justify-between p-6 border-b">
-          <div className="flex-1 pr-4">
-            <h2 className="font-semibold text-gray-900 text-lg">{task.title}</h2>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-start justify-between p-5 border-b">
+          <div>
+            <h2 className="font-semibold text-gray-900">{task.title}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              {task.client && <span className="mr-3">{task.client}</span>}
+              {task.client && <span className="mr-2">{task.client}</span>}
               {task.month && <span>Měsíc: {task.month}</span>}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-            <X className="h-5 w-5" />
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-4">
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {/* Metadata grid */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="p-5 space-y-3 text-sm overflow-y-auto flex-shrink-0">
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <p className="text-xs text-gray-400 mb-1">Status</p>
-              <select
-                value={task.status}
-                onChange={e => onStatusChange(task.id, e.target.value as TaskStatus)}
-                className="border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map(s => (
-                  <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
-                ))}
-              </select>
+              <p className="text-xs text-gray-400 mb-0.5">Deadline</p>
+              <p className="font-medium">{task.deadline ? new Date(task.deadline).toLocaleDateString('cs-CZ') : '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Deadline</p>
-              <p className="font-medium flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                {task.deadline ? new Date(task.deadline).toLocaleDateString('cs-CZ') : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Editor</p>
-              <p className="font-medium flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5 text-gray-400" />
-                {(task.assignee as unknown as { name?: string })?.name ?? '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Typ</p>
-              <p className="font-medium">{task.task_type ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Čas</p>
-              <p className="font-medium">{totalTime.toFixed(2)} h ({task.hours ?? 0}h {task.minutes ?? 0}m)</p>
+              <p className="text-xs text-gray-400 mb-0.5">Čas</p>
+              <p className="font-medium">{((task.hours ?? 0) + (task.minutes ?? 0) / 60).toFixed(2)} h</p>
             </div>
             {isAdmin && (
               <div>
-                <p className="text-xs text-gray-400 mb-1">Odměna</p>
-                <p className="font-medium text-green-700">{totalReward.toLocaleString('cs-CZ')} Kč</p>
+                <p className="text-xs text-gray-400 mb-0.5">Odměna</p>
+                <p className="font-semibold text-green-700">{totalReward.toLocaleString('cs-CZ')} Kč</p>
               </div>
             )}
           </div>
+        </div>
 
-          {task.description && (
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Popis</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+        <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-3">
+          <p className="text-xs font-medium text-gray-500">Komentáře</p>
+          {loadingComments ? (
+            <p className="text-xs text-gray-400">Načítám...</p>
+          ) : comments.length === 0 ? (
+            <p className="text-xs text-gray-400">Žádné komentáře</p>
+          ) : (
+            <div className="space-y-2">
+              {comments.map(c => (
+                <div key={c.id} className="bg-gray-50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-gray-700">{c.author_name ?? 'Neznámý'}</span>
+                    <span className="text-xs text-gray-400">{new Date(c.created_at).toLocaleDateString('cs-CZ')}</span>
+                  </div>
+                  <p className="text-sm text-gray-700">{c.content}</p>
+                </div>
+              ))}
             </div>
           )}
-
-          {/* Komentáře */}
-          <div>
-            <p className="text-xs font-medium text-gray-500 mb-3">Komentáře</p>
-            {loadingComments ? (
-              <p className="text-xs text-gray-400">Načítám...</p>
-            ) : comments.length === 0 ? (
-              <p className="text-xs text-gray-400">Zatím žádné komentáře</p>
-            ) : (
-              <div className="space-y-3 mb-3">
-                {comments.map(c => (
-                  <div key={c.id} className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-700">{c.author_name ?? 'Neznámý'}</span>
-                      <span className="text-xs text-gray-400">
-                        {new Date(c.created_at).toLocaleDateString('cs-CZ')}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-700">{c.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            <form onSubmit={sendComment} className="flex gap-2">
-              <input
-                value={comment}
-                onChange={e => setComment(e.target.value)}
-                placeholder="Napsat komentář..."
-                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="submit"
-                disabled={sendingComment || !comment.trim()}
-                className="bg-gray-900 text-white rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
-              >
-                {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Odeslat'}
-              </button>
-            </form>
-          </div>
+          <form onSubmit={sendComment} className="flex gap-2 mt-3">
+            <input
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Komentář…"
+              className="flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            <button
+              type="submit"
+              disabled={sending || !comment.trim()}
+              className="bg-gray-900 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Odeslat'}
+            </button>
+          </form>
         </div>
       </div>
     </div>

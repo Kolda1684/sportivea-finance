@@ -11,12 +11,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const admin = createAdminSupabaseClient()
   const { data, error } = await admin
     .from('tasks')
-    .select(`
-      *,
-      assignee:profiles!tasks_assignee_id_fkey(id, name, email, role),
-      comments:task_comments(id, content, author_name, created_at),
-      attachments:task_attachments(id, file_name, file_url, file_size, created_at)
-    `)
+    .select(`*, comments:task_comments(id, content, author_name, created_at), attachments:task_attachments(id, file_name, file_url, file_size, created_at)`)
     .eq('id', params.id)
     .single()
 
@@ -28,7 +23,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  return NextResponse.json(data)
+  // Připoj profil assignee
+  let assignee = null
+  if (data.assignee_id) {
+    const { data: profile } = await admin.from('profiles').select('id, name').eq('id', data.assignee_id).single()
+    assignee = profile
+  }
+
+  return NextResponse.json({ ...data, assignee })
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -39,17 +41,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const admin = createAdminSupabaseClient()
   const userIsAdmin = await isAdmin(user.id)
 
-  // Ověř přístup k tasku
-  const { data: existing } = await admin.from('tasks').select('assignee_id, variable_cost_id').eq('id', params.id).single()
+  const { data: existing } = await admin
+    .from('tasks')
+    .select('assignee_id, variable_cost_id')
+    .eq('id', params.id)
+    .single()
+
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!userIsAdmin && existing.assignee_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const body = await req.json()
-
-  // Editor může měnit jen status a hodiny/minuty (ne odměnu, klienta, atd.)
   const allowed: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
   if (userIsAdmin) {
     const fields = ['title', 'description', 'deadline', 'status', 'client', 'company_id',
       'hours', 'minutes', 'reward', 'one_time_reward', 'task_type', 'month', 'assignee_id']
@@ -60,11 +65,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       allowed['month'] = dateToMonth(new Date(body.deadline))
     }
   } else {
-    // Editor může jen změnit status a hodiny/minuty
-    if ('status' in body) allowed['status'] = body.status
-    if ('hours' in body) allowed['hours'] = body.hours
-    if ('minutes' in body) allowed['minutes'] = body.minutes
-    if ('description' in body) allowed['description'] = body.description
+    // Editor může editovat vlastní task — vše kromě odměny a assignee
+    const editorFields = ['title', 'description', 'deadline', 'status', 'client', 'company_id', 'hours', 'minutes', 'task_type']
+    for (const f of editorFields) {
+      if (f in body) allowed[f] = body[f]
+    }
+    if ('deadline' in body && body.deadline) {
+      allowed['month'] = dateToMonth(new Date(body.deadline))
+    }
   }
 
   const { data, error } = await admin
@@ -76,8 +84,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Pokud task přešel na hotovo a nemá variable_cost, vytvoř ho automaticky
-  if (allowed['status'] === 'hotovo' && !(existing as { variable_cost_id: string | null }).variable_cost_id) {
+  // Auto-sync do variable_costs při dokončení
+  if (allowed['status'] === 'hotovo' && !existing.variable_cost_id) {
     await syncTaskToVariableCost(params.id, admin)
   }
 
@@ -99,13 +107,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 }
 
 async function syncTaskToVariableCost(taskId: string, admin: ReturnType<typeof createAdminSupabaseClient>) {
-  const { data: task } = await admin
-    .from('tasks')
-    .select('*, assignee:profiles!tasks_assignee_id_fkey(name)')
-    .eq('id', taskId)
-    .single()
-
+  const { data: task } = await admin.from('tasks').select('*').eq('id', taskId).single()
   if (!task) return
+
+  let memberName: string | null = null
+  if (task.assignee_id) {
+    const { data: profile } = await admin.from('profiles').select('name').eq('id', task.assignee_id).single()
+    memberName = profile?.name ?? null
+  }
 
   const totalHours = (task.hours ?? 0) + (task.minutes ?? 0) / 60
   const totalPrice = (task.reward ?? 0) + (task.one_time_reward ?? 0)
@@ -113,7 +122,7 @@ async function syncTaskToVariableCost(taskId: string, admin: ReturnType<typeof c
   const { data: vc } = await admin
     .from('variable_costs')
     .insert({
-      team_member: task.assignee?.name ?? null,
+      team_member: memberName,
       client: task.client ?? null,
       hours: totalHours,
       price: totalPrice,
