@@ -3,6 +3,17 @@
 -- Přidává: profiles, tasks, calendar, CRM (companies, contacts)
 -- ============================================================
 
+-- ============================================================
+-- PROFILY UŽIVATELŮ (musí být před get_my_role funkcí)
+-- ============================================================
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text not null default '',
+  email text,
+  role text not null default 'editor' check (role in ('admin', 'editor')),
+  created_at timestamptz default now()
+);
+
 -- Pomocná funkce pro získání role (security definer = přeskakuje RLS)
 create or replace function get_my_role()
 returns text
@@ -12,17 +23,6 @@ stable
 as $$
   select role from profiles where id = auth.uid()
 $$;
-
--- ============================================================
--- PROFILY UŽIVATELŮ
--- ============================================================
-create table if not exists profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  name text not null default '',
-  email text,
-  role text not null default 'editor' check (role in ('admin', 'editor')),
-  created_at timestamptz default now()
-);
 
 alter table profiles enable row level security;
 
