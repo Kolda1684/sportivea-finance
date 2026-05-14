@@ -381,35 +381,35 @@ export default function TasksPage() {
             <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
           </div>
         ) : (
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm border-collapse border border-gray-200">
             <thead>
-              <tr className="border-b bg-gray-50/80 sticky top-0 z-10">
-                <th className="text-left px-3 py-2 font-medium text-gray-400 text-xs w-8">#</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs min-w-[200px]">Task</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[110px]">Deadline</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[160px]">Klient</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[100px]">Typ</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[60px]">Hod.</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[60px]">Min.</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Měsíc</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[130px]">Status</th>
+              <tr className="bg-gray-50 sticky top-0 z-10">
+                <th className="border border-gray-200 px-3 py-2 font-medium text-gray-500 text-xs w-8 text-left">#</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs min-w-[200px] text-left">Task</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[110px] text-left">Deadline</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[160px] text-left">Klient</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[100px] text-left">Typ</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[60px] text-right">Hod.</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[60px] text-right">Min.</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[80px] text-left">Měsíc</th>
+                <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[130px] text-left">Status</th>
                 {isAdmin && <>
-                  <th className="text-right px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Jednor.</th>
-                  <th className="text-right px-2 py-2 font-medium text-gray-400 text-xs w-[80px]">Odměna</th>
-                  <th className="text-left px-2 py-2 font-medium text-gray-400 text-xs w-[110px]">Editor</th>
+                  <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[80px] text-right">Jednor.</th>
+                  <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[80px] text-right">Odměna</th>
+                  <th className="border border-gray-200 px-2 py-2 font-medium text-gray-500 text-xs w-[110px] text-left">Editor</th>
                 </>}
-                <th className="w-8" />
+                <th className="border border-gray-200 w-8" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {tasks.map((task, i) => (
-                <tr key={task.id} className="group hover:bg-gray-50/50 transition-colors">
+                <tr key={task.id} className="group hover:bg-blue-50/30 transition-colors">
                   {/* Číslo */}
-                  <td className="px-3 py-0.5 text-xs text-gray-300 select-none">{i + 1}</td>
+                  <td className="border border-gray-200 px-3 py-0 text-xs text-gray-300 select-none bg-gray-50/50">{i + 1}</td>
 
                   {/* Název */}
-                  <td className="px-1 py-0.5">
-                    <div className="flex items-center gap-1">
+                  <td className="border border-gray-200 px-0 py-0">
+                    <div className="flex items-center">
                       <Cell
                         value={task.title}
                         onSave={v => updateField(task.id, 'title', v)}
@@ -418,7 +418,7 @@ export default function TasksPage() {
                       />
                       <button
                         onClick={() => setDetailTask(task)}
-                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-opacity flex-shrink-0 p-1"
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-opacity flex-shrink-0 px-1"
                         title="Detail"
                       >
                         <MessageSquare className="h-3.5 w-3.5" />
@@ -427,7 +427,7 @@ export default function TasksPage() {
                   </td>
 
                   {/* Deadline */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-0 py-0">
                     <Cell
                       value={task.deadline}
                       type="date"
@@ -438,7 +438,7 @@ export default function TasksPage() {
                   </td>
 
                   {/* Klient */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-0 py-0">
                     <ClientCell
                       value={task.client}
                       companies={companies}
@@ -447,7 +447,7 @@ export default function TasksPage() {
                   </td>
 
                   {/* Typ */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-0 py-0">
                     <Cell
                       value={task.task_type}
                       type="select"
@@ -459,7 +459,7 @@ export default function TasksPage() {
                   </td>
 
                   {/* Hodiny */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-0 py-0">
                     <Cell
                       value={task.hours || null}
                       type="number"
@@ -470,7 +470,7 @@ export default function TasksPage() {
                   </td>
 
                   {/* Minuty */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-0 py-0">
                     <Cell
                       value={task.minutes || null}
                       type="number"
@@ -481,10 +481,10 @@ export default function TasksPage() {
                   </td>
 
                   {/* Měsíc */}
-                  <td className="px-2 py-0.5 text-xs text-gray-400">{task.month ?? '—'}</td>
+                  <td className="border border-gray-200 px-2 py-1 text-xs text-gray-400">{task.month ?? '—'}</td>
 
                   {/* Status */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-2 py-1">
                     <StatusCell
                       value={task.status}
                       onSave={v => updateField(task.id, 'status', v)}
@@ -493,7 +493,7 @@ export default function TasksPage() {
 
                   {/* Admin-only sloupce */}
                   {isAdmin && <>
-                    <td className="px-1 py-0.5">
+                    <td className="border border-gray-200 px-0 py-0">
                       <Cell
                         value={task.one_time_reward || null}
                         type="number"
@@ -502,22 +502,22 @@ export default function TasksPage() {
                         className="text-right text-gray-700"
                       />
                     </td>
-                    <td className="px-1 py-0.5">
+                    <td className="border border-gray-200 px-0 py-0">
                       <Cell
                         value={task.reward || null}
                         type="number"
                         onSave={v => updateField(task.id, 'reward', v ? Number(v) : null)}
                         placeholder="0"
-                        className="text-right font-medium text-gray-900"
+                        className="text-right font-semibold text-gray-900"
                       />
                     </td>
-                    <td className="px-2 py-0.5 text-xs text-gray-400">
+                    <td className="border border-gray-200 px-2 py-1 text-xs text-gray-500">
                       {task.assignee?.name ?? '—'}
                     </td>
                   </>}
 
                   {/* Smazat (admin) */}
-                  <td className="px-1 py-0.5">
+                  <td className="border border-gray-200 px-1 py-0 text-center">
                     {isAdmin && (
                       <button
                         onClick={async () => {
@@ -536,9 +536,9 @@ export default function TasksPage() {
 
               {/* Nový task – inline řádek */}
               {newRowDraft !== null && (
-                <tr className="bg-blue-50/30">
-                  <td className="px-3 py-0.5 text-xs text-gray-300">—</td>
-                  <td className="px-1 py-1" colSpan={isAdmin ? 8 : 7}>
+                <tr className="bg-blue-50/40">
+                  <td className="border border-gray-200 px-3 py-1 text-xs text-gray-300 bg-gray-50/50">*</td>
+                  <td className="border border-gray-200 px-1 py-1" colSpan={isAdmin ? 8 : 7}>
                     <input
                       ref={newTitleRef}
                       value={newRowDraft.title}
@@ -549,11 +549,11 @@ export default function TasksPage() {
                         if (e.key === 'Escape') setNewRowDraft(null)
                       }}
                       placeholder="Název tasku… (Enter pro uložení)"
-                      className="w-full px-2 py-1 text-sm bg-white border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 font-medium"
+                      className="w-full px-2 py-1 text-sm bg-white border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
                     />
                   </td>
                   {isAdmin && (
-                    <td className="px-1 py-1">
+                    <td className="border border-gray-200 px-1 py-1">
                       <select
                         value={newRowDraft.assignee_id}
                         onChange={e => setNewRowDraft(d => d ? { ...d, assignee_id: e.target.value } : d)}
@@ -564,7 +564,7 @@ export default function TasksPage() {
                       </select>
                     </td>
                   )}
-                  <td>
+                  <td className="border border-gray-200 text-center">
                     {savingNew && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400 mx-auto" />}
                   </td>
                 </tr>
@@ -574,26 +574,29 @@ export default function TasksPage() {
             {/* Footer se sumami */}
             {tasks.length > 0 && (
               <tfoot>
-                <tr className="border-t bg-gray-50/80">
-                  <td className="px-3 py-2" />
-                  <td className="px-2 py-2 text-xs text-gray-400">
-                    COUNT <span className="font-semibold text-gray-600">{tasks.length}</span>
-                    <span className="ml-2 text-green-600">{doneCount} hotovo</span>
+                <tr className="bg-gray-50">
+                  <td className="border border-gray-200 px-3 py-2" />
+                  <td className="border border-gray-200 px-2 py-2 text-xs text-gray-500">
+                    COUNT <span className="font-semibold text-gray-700">{tasks.length}</span>
+                    <span className="ml-2 text-green-600 font-medium">{doneCount} hotovo</span>
                   </td>
-                  <td colSpan={4} />
-                  <td className="px-2 py-2 text-xs text-gray-400 text-right">
-                    SUM <span className="font-semibold text-gray-600">{totalHours.toFixed(1)} h</span>
+                  <td className="border border-gray-200" />
+                  <td className="border border-gray-200" />
+                  <td className="border border-gray-200" />
+                  <td className="border border-gray-200 px-2 py-2 text-xs text-gray-500 text-right">
+                    <span className="font-semibold text-gray-700">{totalHours.toFixed(1)} h</span>
                   </td>
-                  <td />
-                  <td />
+                  <td className="border border-gray-200" />
+                  <td className="border border-gray-200" />
+                  <td className="border border-gray-200" />
                   {isAdmin && <>
-                    <td />
-                    <td className="px-2 py-2 text-xs text-right">
-                      SUM <span className="font-semibold text-gray-800">{totalReward.toLocaleString('cs-CZ')} Kč</span>
+                    <td className="border border-gray-200" />
+                    <td className="border border-gray-200 px-2 py-2 text-xs text-right">
+                      <span className="font-bold text-gray-800">{totalReward.toLocaleString('cs-CZ')} Kč</span>
                     </td>
-                    <td />
+                    <td className="border border-gray-200" />
                   </>}
-                  <td />
+                  <td className="border border-gray-200" />
                 </tr>
               </tfoot>
             )}
