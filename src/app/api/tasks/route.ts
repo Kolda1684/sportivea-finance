@@ -31,19 +31,16 @@ export async function GET(req: NextRequest) {
   if (month) query = query.eq('month', month)
   if (status) query = query.eq('status', status)
 
-  const { data: tasks, error } = await query
+  // Paralelně: tasks + všechny profily (malá tabulka, rychle)
+  const [{ data: tasks, error }, { data: profilesData }] = await Promise.all([
+    query,
+    admin.from('profiles').select('id, name'),
+  ])
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Ručně připojit profily (Supabase FK join přes auth.users nefunguje přímo)
-  const assigneeIds = Array.from(new Set((tasks ?? []).map((t: { assignee_id: string | null }) => t.assignee_id).filter(Boolean)))
-  let profileMap: Record<string, { id: string; name: string }> = {}
-  if (assigneeIds.length > 0) {
-    const { data: profiles } = await admin
-      .from('profiles')
-      .select('id, name')
-      .in('id', assigneeIds as string[])
-    profileMap = Object.fromEntries((profiles ?? []).map(p => [p.id, p]))
-  }
+  const profileMap: Record<string, { id: string; name: string }> = Object.fromEntries(
+    (profilesData ?? []).map(p => [p.id, p])
+  )
 
   const result = (tasks ?? []).map((t: Record<string, unknown>) => ({
     ...t,

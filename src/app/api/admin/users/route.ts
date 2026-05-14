@@ -63,9 +63,10 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json()
   const admin = createAdminSupabaseClient()
 
-  const updates: Record<string, string> = {}
+  const updates: Record<string, unknown> = {}
   if (body.name) updates.name = body.name
   if (body.role) updates.role = body.role
+  if ('hourly_rate' in body) updates.hourly_rate = body.hourly_rate === '' ? null : Number(body.hourly_rate) || null
 
   const { data, error } = await admin
     .from('profiles')

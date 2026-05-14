@@ -24,7 +24,7 @@ interface Task {
 }
 
 interface Comment { id: string; author_name: string | null; content: string; created_at: string }
-interface Profile { id: string; name: string; role: string }
+interface Profile { id: string; name: string; role: string; hourly_rate?: number | null }
 interface Company { id: string; name: string }
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; bg: string; dot: string }> = {
@@ -279,11 +279,20 @@ function TaskPanel({
             {/* Odměna — jen admin */}
             {isAdmin && <>
               <PropRow icon={<span className="h-3.5 w-3.5 text-center text-[11px]">€</span>} label="Odměna (Kč)">
-                <input type="number"
-                  value={(field('reward') ?? '') as number}
-                  onChange={e => update('reward', e.target.value ? Number(e.target.value) : null)}
-                  className="text-sm text-gray-700 border-0 outline-none bg-transparent focus:bg-gray-50 rounded px-2 py-1 -mx-2 font-semibold"
-                />
+                <div className="flex items-center gap-2">
+                  <input type="number"
+                    value={(field('reward') ?? '') as number}
+                    onChange={e => update('reward', e.target.value ? Number(e.target.value) : null)}
+                    className="text-sm text-gray-700 border-0 outline-none bg-transparent focus:bg-gray-50 rounded px-2 py-1 -mx-2 font-semibold w-24"
+                  />
+                  {(() => {
+                    const assigneeId = field('assignee_id') as string | null
+                    const assignee = profiles.find(p => p.id === assigneeId)
+                    if (!assignee?.hourly_rate) return null
+                    const computed = Math.round(assignee.hourly_rate * (((field('hours') ?? 0) as number) + ((field('minutes') ?? 0) as number) / 60))
+                    return <span className="text-xs text-gray-400">(sazba {assignee.hourly_rate} Kč/h → {computed} Kč)</span>
+                  })()}
+                </div>
               </PropRow>
               <PropRow icon={<span className="h-3.5 w-3.5 text-center text-[11px]">+</span>} label="Jednorázová odměna">
                 <input type="number"
@@ -410,9 +419,13 @@ export default function TasksPage() {
   const newTitleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => { if (d) setMe(d) })
-    fetch('/api/admin/users').then(r => { if (r.ok) { setIsAdmin(true); r.json().then(setProfiles) } })
-    fetch('/api/companies').then(r => r.ok ? r.json() : []).then(setCompanies)
+    fetch('/api/init').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return
+      setMe(d.me)
+      setIsAdmin(d.isAdmin)
+      setProfiles(d.profiles)
+      setCompanies(d.companies)
+    })
   }, [])
 
   const fetchTasks = useCallback(async () => {
@@ -531,7 +544,35 @@ export default function TasksPage() {
       {/* Tabulka */}
       <div className="flex-1 overflow-auto">
         {loading ? (
-          <div className="flex items-center justify-center py-20"><Loader2 className="h-5 w-5 animate-spin text-gray-300" /></div>
+          <table className="w-full text-sm border-collapse border border-gray-200">
+            <thead>
+              <tr>
+                <th className="border border-gray-200 px-2 py-2 w-8 bg-gray-50" />
+                {['min-w-[180px]','w-[105px]','w-[150px]','w-[95px]','w-[55px]','w-[55px]','w-[75px]','w-[125px]'].map((w, i) => (
+                  <th key={i} className={`border border-gray-200 px-2 py-2 bg-gray-50 ${w}`}>
+                    <div className="h-3 bg-gray-200 rounded animate-pulse w-3/4" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i}>
+                  <td className="border border-gray-200 px-2 py-2 bg-gray-50/40">
+                    <div className="h-3 w-3 bg-gray-100 rounded animate-pulse mx-auto" />
+                  </td>
+                  <td className="border border-gray-200 px-3 py-2.5">
+                    <div className="h-3.5 bg-gray-100 rounded animate-pulse" style={{ width: `${55 + (i * 17) % 40}%`, animationDelay: `${i * 60}ms` }} />
+                  </td>
+                  {[80, 90, 60, 40, 40, 55, 70].map((w, j) => (
+                    <td key={j} className="border border-gray-200 px-3 py-2.5">
+                      <div className="h-3 bg-gray-100 rounded animate-pulse" style={{ width: `${w}%`, animationDelay: `${(i + j) * 40}ms` }} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
           <table className="w-full text-sm border-collapse border border-gray-200">
             <thead>

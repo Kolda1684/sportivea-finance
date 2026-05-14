@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: existing } = await admin
     .from('tasks')
-    .select('assignee_id, variable_cost_id')
+    .select('assignee_id, variable_cost_id, hours, minutes')
     .eq('id', params.id)
     .single()
 
@@ -72,6 +72,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     if ('deadline' in body && body.deadline) {
       allowed['month'] = dateToMonth(new Date(body.deadline))
+    }
+  }
+
+  // Auto-výpočet odměny z hodinové sazby (pokud admin reward explicitně nenastavil)
+  const touchesTime = 'hours' in allowed || 'minutes' in allowed || 'assignee_id' in allowed
+  const rewardExplicit = 'reward' in body
+  if (touchesTime && !rewardExplicit) {
+    const effectiveAssignee = ('assignee_id' in allowed ? allowed['assignee_id'] : existing.assignee_id) as string | null
+    if (effectiveAssignee) {
+      const newHours = ('hours' in allowed ? Number(allowed['hours']) : (existing.hours ?? 0))
+      const newMinutes = ('minutes' in allowed ? Number(allowed['minutes']) : (existing.minutes ?? 0))
+      const { data: p } = await admin.from('profiles').select('hourly_rate').eq('id', effectiveAssignee).single()
+      if (p?.hourly_rate) {
+        allowed['reward'] = Math.round(p.hourly_rate * (newHours + newMinutes / 60))
+      }
     }
   }
 

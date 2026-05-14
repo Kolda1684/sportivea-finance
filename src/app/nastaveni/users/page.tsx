@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, X, Loader2, User, Shield, UserCheck } from 'lucide-react'
+import { Plus, X, Loader2, User, Shield } from 'lucide-react'
 
 interface Profile {
   id: string
   name: string
   email: string | null
   role: 'admin' | 'editor'
+  hourly_rate: number | null
 }
 
 export default function UsersPage() {
@@ -34,6 +35,16 @@ export default function UsersPage() {
     setProfiles(prev => prev.map(p => p.id === id ? { ...p, role } : p))
   }
 
+  async function handleRateChange(id: string, hourly_rate: string) {
+    const parsed = hourly_rate === '' ? null : Number(hourly_rate) || null
+    await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, hourly_rate: parsed }),
+    })
+    setProfiles(prev => prev.map(p => p.id === id ? { ...p, hourly_rate: parsed } : p))
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -56,7 +67,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Správa uživatelů</h1>
@@ -82,6 +93,9 @@ export default function UsersPage() {
               <tr className="border-b bg-gray-50">
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Uživatel</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Email</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500 w-[140px]">
+                  Hodinovka (Kč/h)
+                </th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Změnit roli</th>
               </tr>
@@ -100,6 +114,12 @@ export default function UsersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{p.email ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    <RateInput
+                      value={p.hourly_rate}
+                      onSave={v => handleRateChange(p.id, v)}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       p.role === 'admin'
@@ -174,6 +194,36 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function RateInput({ value, onSave }: { value: number | null; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value != null ? String(value) : '')
+
+  if (!editing) return (
+    <button
+      onClick={() => { setDraft(value != null ? String(value) : ''); setEditing(true) }}
+      className="text-sm text-gray-700 hover:bg-gray-100 rounded px-2 py-1 -mx-2 min-w-[80px] text-left"
+    >
+      {value != null ? `${value.toLocaleString('cs-CZ')} Kč` : <span className="text-gray-300">—</span>}
+    </button>
+  )
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        autoFocus
+        type="number"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => { setEditing(false); onSave(draft) }}
+        onKeyDown={e => { if (e.key === 'Enter') { setEditing(false); onSave(draft) } if (e.key === 'Escape') setEditing(false) }}
+        className="w-24 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+        placeholder="0"
+      />
+      <span className="text-xs text-gray-400">Kč/h</span>
     </div>
   )
 }
