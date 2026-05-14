@@ -136,3 +136,103 @@ export interface TeamMemberCostSummary {
   total: number
   hours: number
 }
+
+// ============================================================
+// Sportivea OS – nové typy
+// ============================================================
+
+export type UserRole = 'admin' | 'editor'
+
+export interface Profile {
+  id: string
+  name: string
+  email: string | null
+  role: UserRole
+  created_at: string
+}
+
+export type TaskStatus = 'zadano' | 'v_procesu' | 'na_checku' | 'hotovo'
+export type TaskType = 'Reels' | 'Daily' | 'Long-form' | 'Natáčení' | 'Grafika' | 'Captions' | 'Stories' | 'YouTube' | 'Jiné'
+
+export interface Task {
+  id: string
+  title: string
+  description: string | null
+  deadline: string | null
+  status: TaskStatus
+  client: string | null
+  company_id: string | null
+  hours: number
+  minutes: number
+  reward: number | null
+  one_time_reward: number | null
+  task_type: string | null
+  month: string | null
+  assignee_id: string | null
+  created_by: string | null
+  variable_cost_id: string | null
+  created_at: string
+  updated_at: string
+  // Joined
+  assignee?: Profile
+  comments?: TaskComment[]
+  attachments?: TaskAttachment[]
+}
+
+export interface TaskComment {
+  id: string
+  task_id: string
+  author_id: string | null
+  author_name: string | null
+  content: string
+  created_at: string
+}
+
+export interface TaskAttachment {
+  id: string
+  task_id: string
+  file_name: string
+  file_url: string
+  file_size: number | null
+  uploaded_by: string | null
+  created_at: string
+}
+
+export type CalendarEventStatus = 'planovano' | 'potvrzeno' | 'zruseno'
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  start_date: string
+  end_date: string | null
+  client: string | null
+  company_id: string | null
+  status: CalendarEventStatus
+  location: string | null
+  description: string | null
+  created_by: string | null
+  created_at: string
+  // Joined
+  assignees?: Profile[]
+}
+
+export interface Company {
+  id: string
+  name: string
+  ico: string | null
+  website: string | null
+  note: string | null
+  created_at: string
+}
+
+export interface Contact {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  company_id: string | null
+  note: string | null
+  created_at: string
+  // Joined
+  company?: Company
+}
