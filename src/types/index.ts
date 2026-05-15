@@ -199,6 +199,7 @@ export interface TaskAttachment {
 }
 
 export type CalendarEventStatus = 'planovano' | 'potvrzeno' | 'zruseno'
+export type CalendarEventType = 'nataceni' | 'dovolena' | 'workshop' | 'jine'
 
 export interface CalendarEvent {
   id: string
@@ -208,6 +209,7 @@ export interface CalendarEvent {
   client: string | null
   company_id: string | null
   status: CalendarEventStatus
+  event_type: CalendarEventType
   location: string | null
   description: string | null
   created_by: string | null

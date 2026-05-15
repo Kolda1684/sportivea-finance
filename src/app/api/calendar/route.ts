@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase-server'
-import { isAdmin } from '@/lib/auth-helpers'
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabaseClient()
@@ -33,9 +32,6 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const userIsAdmin = await isAdmin(user.id)
-  if (!userIsAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
   const body = await req.json()
   const admin = createAdminSupabaseClient()
 
@@ -48,6 +44,7 @@ export async function POST(req: NextRequest) {
       client: body.client ?? null,
       company_id: body.company_id ?? null,
       status: body.status ?? 'planovano',
+      event_type: body.event_type ?? 'jine',
       location: body.location ?? null,
       description: body.description ?? null,
       created_by: user.id,
@@ -62,6 +59,25 @@ export async function POST(req: NextRequest) {
     await admin.from('calendar_event_assignees').insert(
       body.assignee_ids.map((uid: string) => ({ event_id: event.id, user_id: uid }))
     )
+
+    // Auto-vytvoř task pro každého assignee
+    const eventTypeLabels: Record<string, string> = {
+      nataceni: 'Natáčení',
+      dovolena: 'Dovolená',
+      workshop: 'Workshop',
+      jine: 'Event',
+    }
+    const typeLabel = eventTypeLabels[body.event_type ?? 'jine'] ?? 'Event'
+    const tasks = body.assignee_ids.map((uid: string) => ({
+      title: `${typeLabel}: ${body.title}`,
+      description: body.description ?? null,
+      deadline: body.start_date,
+      status: 'todo',
+      assignee_id: uid,
+      created_by: user.id,
+      company_id: body.company_id ?? null,
+    }))
+    await admin.from('tasks').insert(tasks)
   }
 
   return NextResponse.json(event, { status: 201 })

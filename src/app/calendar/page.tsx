@@ -1,14 +1,29 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronRight, Plus, X, Loader2, MapPin } from 'lucide-react'
-import type { CalendarEvent, CalendarEventStatus } from '@/types'
+import { ChevronLeft, ChevronRight, Plus, X, Loader2, MapPin, Calendar, Users, FileText, Tag } from 'lucide-react'
+import type { CalendarEvent, CalendarEventStatus, CalendarEventType } from '@/types'
 import { cn } from '@/lib/utils'
 
-const STATUS_COLORS: Record<CalendarEventStatus, string> = {
-  planovano: 'bg-blue-100 text-blue-800 border-blue-200',
-  potvrzeno: 'bg-green-100 text-green-800 border-green-200',
-  zruseno: 'bg-red-100 text-red-800 border-red-200',
+const EVENT_TYPE_COLORS: Record<CalendarEventType, string> = {
+  nataceni: 'bg-orange-100 text-orange-800 border-orange-200',
+  dovolena: 'bg-teal-100 text-teal-800 border-teal-200',
+  workshop: 'bg-purple-100 text-purple-800 border-purple-200',
+  jine: 'bg-gray-100 text-gray-700 border-gray-200',
+}
+
+const EVENT_TYPE_DOT: Record<CalendarEventType, string> = {
+  nataceni: 'bg-orange-400',
+  dovolena: 'bg-teal-400',
+  workshop: 'bg-purple-400',
+  jine: 'bg-gray-400',
+}
+
+const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
+  nataceni: 'Natáčení',
+  dovolena: 'Dovolená',
+  workshop: 'Workshop',
+  jine: 'Jiné',
 }
 
 const STATUS_LABELS: Record<CalendarEventStatus, string> = {
@@ -19,17 +34,34 @@ const STATUS_LABELS: Record<CalendarEventStatus, string> = {
 
 const MONTHS_CS = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen',
   'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec']
-const DAYS_CS = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So']
+const DAYS_CS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne']
+
+interface Profile { id: string; name: string }
+
+type Panel = 'new' | CalendarEvent | null
 
 interface NewEventForm {
   title: string
   start_date: string
   end_date: string
   client: string
+  event_type: CalendarEventType
   status: CalendarEventStatus
   location: string
   description: string
   assignee_ids: string[]
+}
+
+function PropRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-2 w-28 flex-shrink-0 text-gray-400 mt-0.5">
+        {icon}
+        <span className="text-xs font-medium text-gray-500">{label}</span>
+      </div>
+      <div className="flex-1 text-sm text-gray-800">{children}</div>
+    </div>
+  )
 }
 
 export default function CalendarPage() {
@@ -38,19 +70,19 @@ export default function CalendarPage() {
   const [month, setMonth] = useState(now.getMonth())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
-  const [showNewModal, setShowNewModal] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([])
+  const [panel, setPanel] = useState<Panel>(null)
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [saving, setSaving] = useState(false)
+  const [me, setMe] = useState<{ id: string } | null>(null)
 
   const [form, setForm] = useState<NewEventForm>({
     title: '', start_date: '', end_date: '', client: '',
-    status: 'planovano', location: '', description: '', assignee_ids: [],
+    event_type: 'nataceni', status: 'planovano', location: '', description: '', assignee_ids: [],
   })
 
   const fetchEvents = useCallback(async () => {
     setLoading(true)
+    // Monday-first: expand range slightly to catch multi-day events
     const from = new Date(year, month, 1).toISOString().split('T')[0]
     const to = new Date(year, month + 1, 0).toISOString().split('T')[0]
     const res = await fetch(`/api/calendar?from=${from}&to=${to}`)
@@ -61,11 +93,9 @@ export default function CalendarPage() {
   useEffect(() => { fetchEvents() }, [fetchEvents])
 
   useEffect(() => {
-    fetch('/api/admin/users').then(r => {
-      if (r.ok) {
-        setIsAdmin(true)
-        r.json().then(setProfiles)
-      }
+    fetch('/api/init').then(r => r.json()).then(data => {
+      setProfiles(data.profiles ?? [])
+      setMe(data.me ?? null)
     })
   }, [])
 
@@ -78,8 +108,9 @@ export default function CalendarPage() {
     else setMonth(m => m + 1)
   }
 
-  // Kalendářní grid
-  const firstDay = new Date(year, month, 1).getDay()
+  // Monday-first grid
+  const firstDayRaw = new Date(year, month, 1).getDay() // 0=Sun
+  const firstDay = (firstDayRaw + 6) % 7 // Mon=0
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const cells: (number | null)[] = []
   for (let i = 0; i < firstDay; i++) cells.push(null)
@@ -95,29 +126,16 @@ export default function CalendarPage() {
     })
   }
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    const res = await fetch('/api/calendar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: form.title,
-        start_date: form.start_date,
-        end_date: form.end_date || null,
-        client: form.client || null,
-        status: form.status,
-        location: form.location || null,
-        description: form.description || null,
-        assignee_ids: form.assignee_ids,
-      }),
+  function openNew(day?: number) {
+    const dateStr = day
+      ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      : ''
+    setForm({
+      title: '', start_date: dateStr, end_date: '', client: '',
+      event_type: 'nataceni', status: 'planovano', location: '', description: '',
+      assignee_ids: me ? [me.id] : [],
     })
-    setSaving(false)
-    if (res.ok) {
-      setShowNewModal(false)
-      setForm({ title: '', start_date: '', end_date: '', client: '', status: 'planovano', location: '', description: '', assignee_ids: [] })
-      fetchEvents()
-    }
+    setPanel('new')
   }
 
   function toggleAssignee(uid: string) {
@@ -129,163 +147,187 @@ export default function CalendarPage() {
     }))
   }
 
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    const res = await fetch('/api/calendar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: form.title,
+        start_date: form.start_date,
+        end_date: form.end_date || null,
+        client: form.client || null,
+        event_type: form.event_type,
+        status: form.status,
+        location: form.location || null,
+        description: form.description || null,
+        assignee_ids: form.assignee_ids,
+      }),
+    })
+    setSaving(false)
+    if (res.ok) {
+      setPanel(null)
+      fetchEvents()
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Smazat tento event?')) return
+    await fetch(`/api/calendar/${id}`, { method: 'DELETE' })
+    setPanel(null)
+    fetchEvents()
+  }
+
+  const panelOpen = panel !== null
+  const selectedEvent = panel !== 'new' ? panel as CalendarEvent : null
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Hlavička */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-gray-900">Kalendář natáčení</h1>
-          <div className="flex items-center gap-1">
-            <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="text-base font-medium text-gray-700 min-w-[160px] text-center">
-              {MONTHS_CS[month]} {year}
-            </span>
-            <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-        {isAdmin && (
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Přidat event
-          </button>
-        )}
-      </div>
-
-      {/* Kalendář grid */}
-      <div className="bg-white rounded-xl border overflow-hidden">
-        {/* Hlavička dnů */}
-        <div className="grid grid-cols-7 border-b">
-          {DAYS_CS.map(d => (
-            <div key={d} className="py-2.5 text-center text-xs font-semibold text-gray-500">
-              {d}
+    <div className="flex h-full">
+      {/* Main calendar area */}
+      <div className={cn('flex-1 p-6 min-w-0 transition-all duration-300', panelOpen && 'mr-[420px]')}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-900">Kalendář</h1>
+            <div className="flex items-center gap-1">
+              <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-base font-medium text-gray-700 min-w-[160px] text-center">
+                {MONTHS_CS[month]} {year}
+              </span>
+              <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
-          ))}
-        </div>
-
-        {/* Buňky */}
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
           </div>
-        ) : (
-          <div className="grid grid-cols-7 divide-x divide-y">
-            {cells.map((day, i) => {
-              const dayEvents = day ? eventsForDay(day) : []
-              const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
-              return (
-                <div key={i} className={cn('min-h-[100px] p-1.5', !day && 'bg-gray-50')}>
-                  {day && (
-                    <>
-                      <span className={cn(
-                        'text-xs font-medium mb-1 block w-6 h-6 flex items-center justify-center rounded-full',
-                        isToday ? 'bg-gray-900 text-white' : 'text-gray-600'
-                      )}>
-                        {day}
-                      </span>
-                      <div className="space-y-0.5">
-                        {dayEvents.map(event => (
-                          <button
-                            key={event.id}
-                            onClick={() => setSelectedEvent(event)}
-                            className={cn(
-                              'w-full text-left rounded px-1.5 py-0.5 text-xs font-medium border truncate',
-                              STATUS_COLORS[event.status as CalendarEventStatus]
-                            )}
-                          >
-                            {event.title}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Event detail */}
-      {selectedEvent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="flex items-start justify-between p-6 border-b">
-              <div>
-                <h2 className="font-semibold text-gray-900">{selectedEvent.title}</h2>
-                <span className={cn('mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium border',
-                  STATUS_COLORS[selectedEvent.status as CalendarEventStatus])}>
-                  {STATUS_LABELS[selectedEvent.status as CalendarEventStatus]}
+          <div className="flex items-center gap-3">
+            {/* Legend */}
+            <div className="hidden md:flex items-center gap-3 text-xs text-gray-500">
+              {(Object.entries(EVENT_TYPE_LABELS) as [CalendarEventType, string][]).map(([k, v]) => (
+                <span key={k} className="flex items-center gap-1.5">
+                  <span className={cn('h-2 w-2 rounded-full', EVENT_TYPE_DOT[k])} />
+                  {v}
                 </span>
-              </div>
-              <button onClick={() => setSelectedEvent(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
+              ))}
             </div>
-            <div className="p-6 space-y-3 text-sm">
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Datum</p>
-                <p className="font-medium">
-                  {new Date(selectedEvent.start_date).toLocaleDateString('cs-CZ')}
-                  {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.start_date &&
-                    ` – ${new Date(selectedEvent.end_date).toLocaleDateString('cs-CZ')}`}
-                </p>
-              </div>
-              {selectedEvent.client && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Klient</p>
-                  <p className="font-medium">{selectedEvent.client}</p>
-                </div>
-              )}
-              {selectedEvent.location && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Lokace</p>
-                  <p className="font-medium flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5 text-gray-400" />
-                    {selectedEvent.location}
-                  </p>
-                </div>
-              )}
-              {selectedEvent.assignees && selectedEvent.assignees.length > 0 && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Tým</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(selectedEvent.assignees as unknown as { profile: { name: string } }[]).map((a, i) => (
-                      <span key={i} className="bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-                        {a.profile?.name ?? '?'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {selectedEvent.description && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Poznámka</p>
-                  <p className="text-gray-700">{selectedEvent.description}</p>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => openNew()}
+              className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Přidat event
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Nový event modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="font-semibold text-gray-900">Nový event</h2>
-              <button onClick={() => setShowNewModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
+        {/* Calendar grid */}
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="grid grid-cols-7 border-b">
+            {DAYS_CS.map(d => (
+              <div key={d} className="py-2.5 text-center text-xs font-semibold text-gray-500">
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
             </div>
+          ) : (
+            <div className="grid grid-cols-7 divide-x divide-y">
+              {cells.map((day, i) => {
+                const dayEvents = day ? eventsForDay(day) : []
+                const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
+                return (
+                  <div
+                    key={i}
+                    onClick={() => day && openNew(day)}
+                    className={cn(
+                      'min-h-[100px] p-1.5 cursor-pointer group',
+                      !day && 'bg-gray-50 cursor-default',
+                      day && 'hover:bg-gray-50/80'
+                    )}
+                  >
+                    {day && (
+                      <>
+                        <span className={cn(
+                          'text-xs font-medium mb-1 flex h-6 w-6 items-center justify-center rounded-full',
+                          isToday ? 'bg-gray-900 text-white' : 'text-gray-600 group-hover:bg-gray-200'
+                        )}>
+                          {day}
+                        </span>
+                        <div className="space-y-0.5">
+                          {dayEvents.map(event => {
+                            const type = (event.event_type ?? 'jine') as CalendarEventType
+                            return (
+                              <button
+                                key={event.id}
+                                onClick={e => { e.stopPropagation(); setPanel(event) }}
+                                className={cn(
+                                  'w-full text-left rounded px-1.5 py-0.5 text-xs font-medium border truncate',
+                                  EVENT_TYPE_COLORS[type]
+                                )}
+                              >
+                                {event.title}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right panel */}
+      <div className={cn(
+        'fixed top-0 right-0 h-full w-[420px] bg-white border-l shadow-xl flex flex-col transition-transform duration-300 z-40',
+        panelOpen ? 'translate-x-0' : 'translate-x-full'
+      )}>
+        {/* Panel header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+          <span className="font-semibold text-gray-900 text-sm">
+            {panel === 'new' ? 'Nový event' : (selectedEvent?.title ?? '')}
+          </span>
+          <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 rounded-lg p-1 hover:bg-gray-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* === New event form === */}
+          {panel === 'new' && (
             <form onSubmit={handleCreate} className="p-6 space-y-4">
+              {/* Typ */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-2 block">Typ eventu</label>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.entries(EVENT_TYPE_LABELS) as [CalendarEventType, string][]).map(([k, v]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, event_type: k }))}
+                      className={cn(
+                        'rounded-full px-3 py-1 text-xs font-medium border transition-colors',
+                        form.event_type === k
+                          ? EVENT_TYPE_COLORS[k] + ' ring-1 ring-offset-1 ring-current'
+                          : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                      )}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Název */}
               <div>
                 <label className="text-xs font-medium text-gray-500 mb-1 block">Název *</label>
                 <input
@@ -296,6 +338,8 @@ export default function CalendarPage() {
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* Daty */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Od *</label>
@@ -317,6 +361,8 @@ export default function CalendarPage() {
                   />
                 </div>
               </div>
+
+              {/* Klient + Lokace */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Klient</label>
@@ -328,30 +374,20 @@ export default function CalendarPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Status</label>
-                  <select
-                    value={form.status}
-                    onChange={e => setForm(f => ({ ...f, status: e.target.value as CalendarEventStatus }))}
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Lokace</label>
+                  <input
+                    value={form.location}
+                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                    placeholder="Praha, Jihlava..."
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="planovano">Plánováno</option>
-                    <option value="potvrzeno">Potvrzeno</option>
-                    <option value="zruseno">Zrušeno</option>
-                  </select>
+                  />
                 </div>
               </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">Lokace</label>
-                <input
-                  value={form.location}
-                  onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  placeholder="Praha, Jihlava..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+
+              {/* Tým */}
               {profiles.length > 0 && (
                 <div>
-                  <label className="text-xs font-medium text-gray-500 mb-2 block">Tým</label>
+                  <label className="text-xs font-medium text-gray-500 mb-2 block">Tým (vytvoří jim task)</label>
                   <div className="flex flex-wrap gap-2">
                     {profiles.map(p => (
                       <button
@@ -365,12 +401,14 @@ export default function CalendarPage() {
                             : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
                         )}
                       >
-                        {p.name}
+                        {p.name || p.id.slice(0, 8)}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* Poznámka */}
               <div>
                 <label className="text-xs font-medium text-gray-500 mb-1 block">Poznámka</label>
                 <textarea
@@ -380,20 +418,98 @@ export default function CalendarPage() {
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
+
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowNewModal(false)}
+                <button type="button" onClick={() => setPanel(null)}
                   className="flex-1 border rounded-lg py-2 text-sm font-medium hover:bg-gray-50">
                   Zrušit
                 </button>
                 <button type="submit" disabled={saving}
                   className="flex-1 bg-gray-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-60 flex items-center justify-center gap-2">
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Přidat
+                  Přidat event
                 </button>
               </div>
             </form>
-          </div>
+          )}
+
+          {/* === Event detail === */}
+          {selectedEvent && (
+            <div className="p-6">
+              {/* Type badge */}
+              <div className="mb-5">
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border',
+                  EVENT_TYPE_COLORS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]
+                )}>
+                  <span className={cn('h-1.5 w-1.5 rounded-full', EVENT_TYPE_DOT[(selectedEvent.event_type ?? 'jine') as CalendarEventType])} />
+                  {EVENT_TYPE_LABELS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]}
+                </span>
+                <span className="ml-2 text-xs text-gray-400">
+                  {STATUS_LABELS[selectedEvent.status as CalendarEventStatus]}
+                </span>
+              </div>
+
+              {/* Props */}
+              <div className="divide-y divide-gray-100">
+                <PropRow icon={<Calendar className="h-3.5 w-3.5" />} label="Datum">
+                  {new Date(selectedEvent.start_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.start_date && (
+                    <> – {new Date(selectedEvent.end_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}</>
+                  )}
+                </PropRow>
+
+                {selectedEvent.client && (
+                  <PropRow icon={<Tag className="h-3.5 w-3.5" />} label="Klient">
+                    {selectedEvent.client}
+                  </PropRow>
+                )}
+
+                {selectedEvent.location && (
+                  <PropRow icon={<MapPin className="h-3.5 w-3.5" />} label="Lokace">
+                    {selectedEvent.location}
+                  </PropRow>
+                )}
+
+                {selectedEvent.assignees && selectedEvent.assignees.length > 0 && (
+                  <PropRow icon={<Users className="h-3.5 w-3.5" />} label="Tým">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(selectedEvent.assignees as unknown as { profile: { name: string } }[]).map((a, i) => (
+                        <span key={i} className="bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
+                          {a.profile?.name || '?'}
+                        </span>
+                      ))}
+                    </div>
+                  </PropRow>
+                )}
+
+                {selectedEvent.description && (
+                  <PropRow icon={<FileText className="h-3.5 w-3.5" />} label="Poznámka">
+                    <p className="text-gray-700 whitespace-pre-wrap">{selectedEvent.description}</p>
+                  </PropRow>
+                )}
+              </div>
+
+              {/* Delete */}
+              <div className="mt-6 pt-4 border-t">
+                <button
+                  onClick={() => handleDelete(selectedEvent.id)}
+                  className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                >
+                  Smazat event
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Backdrop for panel on small screens */}
+      {panelOpen && (
+        <div
+          className="fixed inset-0 z-30 md:hidden"
+          onClick={() => setPanel(null)}
+        />
       )}
     </div>
   )

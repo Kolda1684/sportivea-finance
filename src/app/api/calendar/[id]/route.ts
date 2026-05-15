@@ -21,6 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       end_date: body.end_date ?? null,
       client: body.client ?? null,
       status: body.status ?? 'planovano',
+      event_type: body.event_type ?? 'jine',
       location: body.location ?? null,
       description: body.description ?? null,
     })
