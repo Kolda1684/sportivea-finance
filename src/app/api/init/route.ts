@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase-server'
+import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth-helpers'
 
 // Kombinovaný init endpoint — vrátí me + isAdmin + profiles + companies v jednom requestu
 // Snižuje 3 round-tripy na 1, interně 3 paralelní Supabase dotazy
 export async function GET() {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminSupabaseClient()

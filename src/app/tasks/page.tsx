@@ -441,16 +441,27 @@ export default function TasksPage() {
   useEffect(() => { fetchTasks() }, [fetchTasks])
 
   async function updateField(taskId: string, field: string, value: unknown) {
+    // Optimistická okamžitá aktualizace — UI odpoví ihned, server syncuje na pozadí
+    const optimistic = { [field]: value }
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...optimistic } : t))
+    if (panel && panel !== 'new' && (panel as Task).id === taskId) {
+      setPanel(prev => prev && prev !== 'new' ? { ...prev as Task, ...optimistic } : prev)
+    }
+
     const res = await fetch(`/api/tasks/${taskId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
     })
     if (res.ok) {
+      // Sync se serverem — doplní auto-computed hodnoty (reward z hodinové sazby, month, atd.)
       const updated = await res.json()
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updated } : t))
       if (panel && panel !== 'new' && (panel as Task).id === taskId) {
         setPanel(prev => prev && prev !== 'new' ? { ...prev as Task, ...updated } : prev)
       }
+    } else {
+      // Reverze při chybě — přenačti ze serveru
+      fetchTasks()
     }
   }
 

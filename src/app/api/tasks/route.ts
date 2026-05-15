@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase-server'
-import { isAdmin } from '@/lib/auth-helpers'
+import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth-helpers'
 import { dateToMonth } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminSupabaseClient()
@@ -14,7 +13,12 @@ export async function GET(req: NextRequest) {
   const assigneeId = searchParams.get('assignee_id')
   const status = searchParams.get('status')
 
-  const userIsAdmin = await isAdmin(user.id)
+  // Paralelně: role check + všechny profily (malá tabulka)
+  const [{ data: roleData }, { data: profilesData }] = await Promise.all([
+    admin.from('profiles').select('role').eq('id', user.id).single(),
+    admin.from('profiles').select('id, name'),
+  ])
+  const userIsAdmin = roleData?.role === 'admin'
 
   let query = admin
     .from('tasks')
@@ -22,7 +26,6 @@ export async function GET(req: NextRequest) {
     .order('deadline', { ascending: true, nullsFirst: false })
 
   if (!userIsAdmin) {
-    // Editor vidí jen své tasky
     query = query.eq('assignee_id', user.id)
   } else if (assigneeId) {
     query = query.eq('assignee_id', assigneeId)
@@ -31,11 +34,7 @@ export async function GET(req: NextRequest) {
   if (month) query = query.eq('month', month)
   if (status) query = query.eq('status', status)
 
-  // Paralelně: tasks + všechny profily (malá tabulka, rychle)
-  const [{ data: tasks, error }, { data: profilesData }] = await Promise.all([
-    query,
-    admin.from('profiles').select('id, name'),
-  ])
+  const { data: tasks, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const profileMap: Record<string, { id: string; name: string }> = Object.fromEntries(
@@ -51,21 +50,19 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const admin = createAdminSupabaseClient()
-  const userIsAdmin = await isAdmin(user.id)
+  const [body, { data: roleData }] = await Promise.all([
+    req.json(),
+    createAdminSupabaseClient().from('profiles').select('role').eq('id', user.id).single(),
+  ])
 
+  const admin = createAdminSupabaseClient()
+  const userIsAdmin = roleData?.role === 'admin'
   const deadline = body.deadline ?? null
   const month = body.month ?? (deadline ? dateToMonth(new Date(deadline)) : null)
-
-  // Editor může vytvořit task jen sobě, admin komukoliv
-  const assigneeId = userIsAdmin
-    ? (body.assignee_id ?? user.id)
-    : user.id
+  const assigneeId = userIsAdmin ? (body.assignee_id ?? user.id) : user.id
 
   const insertData: Record<string, unknown> = {
     title: body.title,
@@ -82,7 +79,6 @@ export async function POST(req: NextRequest) {
     created_by: user.id,
   }
 
-  // Odměnu může nastavit jen admin
   if (userIsAdmin) {
     insertData.reward = body.reward ?? null
     insertData.one_time_reward = body.one_time_reward ?? null

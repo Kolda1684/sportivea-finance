@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase-server'
-import { isAdmin } from '@/lib/auth-helpers'
+import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth-helpers'
 import { dateToMonth } from '@/lib/utils'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminSupabaseClient()
-  const { data, error } = await admin
-    .from('tasks')
-    .select(`*, comments:task_comments(id, content, author_name, created_at), attachments:task_attachments(id, file_name, file_url, file_size, created_at)`)
-    .eq('id', params.id)
-    .single()
+
+  // Paralelně: task (s komentáři) + role uživatele
+  const [{ data, error }, { data: roleData }] = await Promise.all([
+    admin
+      .from('tasks')
+      .select(`*, comments:task_comments(id, content, author_name, created_at), attachments:task_attachments(id, file_name, file_url, file_size, created_at)`)
+      .eq('id', params.id)
+      .single(),
+    admin.from('profiles').select('role').eq('id', user.id).single(),
+  ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const userIsAdmin = await isAdmin(user.id)
+  const userIsAdmin = roleData?.role === 'admin'
   if (!userIsAdmin && data.assignee_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Připoj profil assignee
   let assignee = null
   if (data.assignee_id) {
     const { data: profile } = await admin.from('profiles').select('id, name').eq('id', data.assignee_id).single()
@@ -34,18 +37,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminSupabaseClient()
-  const userIsAdmin = await isAdmin(user.id)
 
-  const { data: existing } = await admin
-    .from('tasks')
-    .select('assignee_id, variable_cost_id, hours, minutes')
-    .eq('id', params.id)
-    .single()
+  // Paralelně: role + existující task — největší zrychlení (bylo 2 sekvenční DB cally)
+  const [{ data: roleData }, { data: existing }] = await Promise.all([
+    admin.from('profiles').select('role').eq('id', user.id).single(),
+    admin.from('tasks').select('assignee_id, variable_cost_id, hours, minutes').eq('id', params.id).single(),
+  ])
+
+  const userIsAdmin = roleData?.role === 'admin'
 
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!userIsAdmin && existing.assignee_id !== user.id) {
@@ -65,7 +68,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       allowed['month'] = dateToMonth(new Date(body.deadline))
     }
   } else {
-    // Editor může editovat vlastní task — vše kromě odměny a assignee
     const editorFields = ['title', 'description', 'deadline', 'status', 'client', 'company_id', 'hours', 'minutes', 'task_type']
     for (const f of editorFields) {
       if (f in body) allowed[f] = body[f]
@@ -99,23 +101,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Auto-sync do variable_costs při dokončení
+  // Auto-sync do variable_costs při dokončení (non-blocking)
   if (allowed['status'] === 'hotovo' && !existing.variable_cost_id) {
-    await syncTaskToVariableCost(params.id, admin)
+    syncTaskToVariableCost(params.id, admin).catch(() => {})
   }
 
   return NextResponse.json(data)
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const userIsAdmin = await isAdmin(user.id)
-  if (!userIsAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
   const admin = createAdminSupabaseClient()
+  const { data: roleData } = await admin.from('profiles').select('role').eq('id', user.id).single()
+  if (roleData?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const { error } = await admin.from('tasks').delete().eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })

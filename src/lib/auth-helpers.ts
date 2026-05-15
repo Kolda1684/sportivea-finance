@@ -9,6 +9,14 @@ export interface UserProfile {
   role: UserRole
 }
 
+// Rychlejší alternativa k getUser() — čte session z cookie bez network callu.
+// Bezpečné použití v route handlerech: middleware už session ověřil přes getUser().
+export async function getSessionUser() {
+  const supabase = createServerSupabaseClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.user ?? null
+}
+
 export async function getCurrentUser() {
   const supabase = createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
