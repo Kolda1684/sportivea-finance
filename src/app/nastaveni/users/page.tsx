@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, X, Loader2, User, Shield } from 'lucide-react'
+import { Plus, X, Loader2, User, Shield, AlertTriangle } from 'lucide-react'
 
 interface Profile {
   id: string
@@ -9,6 +9,75 @@ interface Profile {
   email: string | null
   role: 'admin' | 'editor'
   hourly_rate: number | null
+}
+
+function looksLikeEmail(s: string) {
+  return s.includes('@')
+}
+
+function InlineText({ value, onSave, placeholder = '—', warn = false }: {
+  value: string; onSave: (v: string) => void; placeholder?: string; warn?: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+
+  if (!editing) return (
+    <button
+      onClick={() => { setDraft(value); setEditing(true) }}
+      className={`text-sm rounded px-2 py-1 -mx-2 text-left hover:bg-gray-100 flex items-center gap-1.5 ${warn ? 'text-orange-600 font-medium' : 'text-gray-900'}`}
+    >
+      {warn && <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />}
+      {value || <span className="text-gray-300">{placeholder}</span>}
+    </button>
+  )
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => { setEditing(false); onSave(draft) }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { setEditing(false); onSave(draft) }
+        if (e.key === 'Escape') setEditing(false)
+      }}
+      className="w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+      placeholder={placeholder}
+    />
+  )
+}
+
+function RateInput({ value, onSave }: { value: number | null; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value != null ? String(value) : '')
+
+  if (!editing) return (
+    <button
+      onClick={() => { setDraft(value != null ? String(value) : ''); setEditing(true) }}
+      className="text-sm text-gray-700 hover:bg-gray-100 rounded px-2 py-1 -mx-2 min-w-[80px] text-left"
+    >
+      {value != null ? `${value.toLocaleString('cs-CZ')} Kč` : <span className="text-gray-300">—</span>}
+    </button>
+  )
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        autoFocus
+        type="number"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => { setEditing(false); onSave(draft) }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { setEditing(false); onSave(draft) }
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        className="w-24 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+        placeholder="0"
+      />
+      <span className="text-xs text-gray-400">Kč/h</span>
+    </div>
+  )
 }
 
 export default function UsersPage() {
@@ -19,6 +88,8 @@ export default function UsersPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'editor' as 'admin' | 'editor' })
   const [error, setError] = useState('')
 
+  const badNames = profiles.filter(p => !p.name || looksLikeEmail(p.name))
+
   useEffect(() => {
     fetch('/api/admin/users').then(r => r.json()).then(data => {
       setProfiles(data)
@@ -26,22 +97,27 @@ export default function UsersPage() {
     })
   }, [])
 
-  async function handleRoleChange(id: string, role: 'admin' | 'editor') {
+  async function patch(id: string, updates: Record<string, unknown>) {
     await fetch('/api/admin/users', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, role }),
+      body: JSON.stringify({ id, ...updates }),
     })
+  }
+
+  async function handleNameChange(id: string, name: string) {
+    await patch(id, { name: name.trim() })
+    setProfiles(prev => prev.map(p => p.id === id ? { ...p, name: name.trim() } : p))
+  }
+
+  async function handleRoleChange(id: string, role: 'admin' | 'editor') {
+    await patch(id, { role })
     setProfiles(prev => prev.map(p => p.id === id ? { ...p, role } : p))
   }
 
   async function handleRateChange(id: string, hourly_rate: string) {
     const parsed = hourly_rate === '' ? null : Number(hourly_rate) || null
-    await fetch('/api/admin/users', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, hourly_rate: parsed }),
-    })
+    await patch(id, { hourly_rate: parsed })
     setProfiles(prev => prev.map(p => p.id === id ? { ...p, hourly_rate: parsed } : p))
   }
 
@@ -82,6 +158,17 @@ export default function UsersPage() {
         </button>
       </div>
 
+      {/* Varování — uživatelé bez jména */}
+      {!loading && badNames.length > 0 && (
+        <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-orange-800">
+            <span className="font-semibold">Chybí jméno</span> — klikni na zvýrazněné řádky a doplň jméno.
+            Jméno se zobrazuje v taskách, přehledech i výkazech.
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
@@ -91,57 +178,60 @@ export default function UsersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Uživatel</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500">Jméno</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Email</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500 w-[140px]">
-                  Hodinovka (Kč/h)
-                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500 w-[140px]">Hodinovka (Kč/h)</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Změnit roli</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {profiles.map(p => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-7 w-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-semibold text-gray-600">
-                          {p.name.charAt(0).toUpperCase()}
-                        </span>
+              {profiles.map(p => {
+                const nameWarn = !p.name || looksLikeEmail(p.name)
+                return (
+                  <tr key={p.id} className={nameWarn ? 'bg-orange-50/40 hover:bg-orange-50' : 'hover:bg-gray-50'}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-7 w-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-semibold text-gray-600">
+                            {p.name && !looksLikeEmail(p.name) ? p.name.charAt(0).toUpperCase() : '?'}
+                          </span>
+                        </div>
+                        <div className="min-w-[140px]">
+                          <InlineText
+                            value={p.name}
+                            onSave={v => handleNameChange(p.id, v)}
+                            placeholder="Klikni a zadej jméno…"
+                            warn={nameWarn}
+                          />
+                        </div>
                       </div>
-                      <span className="font-medium text-gray-900">{p.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{p.email ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <RateInput
-                      value={p.hourly_rate}
-                      onSave={v => handleRateChange(p.id, v)}
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      p.role === 'admin'
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {p.role === 'admin' ? <Shield className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                      {p.role === 'admin' ? 'Admin' : 'Editor'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={p.role}
-                      onChange={e => handleRoleChange(p.id, e.target.value as 'admin' | 'editor')}
-                      className="border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="editor">Editor</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{p.email ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <RateInput value={p.hourly_rate} onSave={v => handleRateChange(p.id, v)} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        p.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {p.role === 'admin' ? <Shield className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                        {p.role === 'admin' ? 'Admin' : 'Editor'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={p.role}
+                        onChange={e => handleRoleChange(p.id, e.target.value as 'admin' | 'editor')}
+                        className="border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="editor">Editor</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -156,7 +246,7 @@ export default function UsersPage() {
             </div>
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">Jméno *</label>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Jméno a příjmení *</label>
                 <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Vojtěch Kepka"
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -185,8 +275,10 @@ export default function UsersPage() {
                 <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
               )}
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 border rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Zrušit</button>
-                <button type="submit" disabled={saving} className="flex-1 bg-gray-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-60 flex items-center justify-center gap-2">
+                <button type="button" onClick={() => setShowModal(false)}
+                  className="flex-1 border rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Zrušit</button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 bg-gray-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-60 flex items-center justify-center gap-2">
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}Vytvořit
                 </button>
               </div>
@@ -194,36 +286,6 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function RateInput({ value, onSave }: { value: number | null; onSave: (v: string) => void }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value != null ? String(value) : '')
-
-  if (!editing) return (
-    <button
-      onClick={() => { setDraft(value != null ? String(value) : ''); setEditing(true) }}
-      className="text-sm text-gray-700 hover:bg-gray-100 rounded px-2 py-1 -mx-2 min-w-[80px] text-left"
-    >
-      {value != null ? `${value.toLocaleString('cs-CZ')} Kč` : <span className="text-gray-300">—</span>}
-    </button>
-  )
-
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        autoFocus
-        type="number"
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); onSave(draft) }}
-        onKeyDown={e => { if (e.key === 'Enter') { setEditing(false); onSave(draft) } if (e.key === 'Escape') setEditing(false) }}
-        className="w-24 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-        placeholder="0"
-      />
-      <span className="text-xs text-gray-400">Kč/h</span>
     </div>
   )
 }

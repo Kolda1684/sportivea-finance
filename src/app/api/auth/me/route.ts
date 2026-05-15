@@ -13,5 +13,5 @@ export async function GET() {
     .eq('id', user.id)
     .single()
 
-  return NextResponse.json(profile ?? { id: user.id, name: user.email, email: user.email, role: 'editor' })
+  return NextResponse.json(profile ?? { id: user.id, name: '', email: user.email, role: 'editor' })
 }

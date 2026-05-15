@@ -21,7 +21,7 @@ export async function GET() {
 
   const me = profile
     ? { ...profile, email: profile.email ?? user.email }
-    : { id: user.id, email: user.email, name: '', role: 'editor', hourly_rate: null }
+    : { id: user.id, email: user.email ?? '', name: '', role: 'editor', hourly_rate: null }
 
   return NextResponse.json({
     me,
