@@ -10,10 +10,8 @@ import {
   ChevronRight,
   LogOut,
   FileText,
-  Waves,
   Sparkles,
   Calculator,
-  BarChart3,
   BookOpen,
   CheckSquare,
   Calendar,
@@ -53,9 +51,7 @@ const adminNavItems = [
     ],
   },
   { href: '/invoices/upload', label: 'AI Upload faktur', icon: Sparkles },
-  { href: '/cashflow', label: 'Cashflow', icon: Waves },
   { href: '/journal', label: 'Finanční deník', icon: BookOpen },
-  { href: '/prehled', label: 'Měsíční přehled', icon: BarChart3 },
   { href: '/cenotvorba', label: 'Cenotvorba', icon: Calculator },
 ]
 
