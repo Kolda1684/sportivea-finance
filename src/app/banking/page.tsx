@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, X, Search } from 'lucide-react'
+import { RefreshCw, Loader2, X, Search, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BankAccount {
@@ -20,6 +20,7 @@ interface BankTx {
   type: string
   status: string
   message: string | null
+  note: string | null
   counterparty_name: string | null
   variable_symbol: string | null
   account_id: string | null
@@ -86,6 +87,10 @@ export default function BankingPage() {
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
 
+  // Inline note editing
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [noteValue, setNoteValue] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
     const [txData, invData, expData, accData] = await Promise.all([
@@ -140,6 +145,7 @@ export default function BankingPage() {
   }
 
   function getDescription(tx: BankTx): string {
+    if (tx.note) return tx.note
     if (tx.invoices?.subject_name) return tx.invoices.subject_name
     if (tx.expense_invoices?.supplier_name) return tx.expense_invoices.supplier_name
     return tx.counterparty_name || tx.message || '—'
@@ -194,6 +200,22 @@ export default function BankingPage() {
     await fetch('/api/banking/sync', { method: 'POST' })
     await load()
     setSyncing(false)
+  }
+
+  function startEditNote(tx: BankTx) {
+    setEditingNoteId(tx.id)
+    setNoteValue(tx.note ?? '')
+  }
+
+  async function saveNote(txId: string) {
+    const val = noteValue.trim() || null
+    setTxs(prev => prev.map(tx => tx.id !== txId ? tx : { ...tx, note: val }))
+    setEditingNoteId(null)
+    await fetch(`/api/banking/transactions/${txId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: val }),
+    })
   }
 
   // Picker items
@@ -334,7 +356,33 @@ export default function BankingPage() {
                       </div>
                     </td>
 
-                    <td className="px-3 py-2.5 text-gray-800">{desc}</td>
+                    <td className="px-3 py-2.5 text-gray-800">
+                      {editingNoteId === tx.id ? (
+                        <input
+                          autoFocus
+                          value={noteValue}
+                          onChange={e => setNoteValue(e.target.value)}
+                          onBlur={() => saveNote(tx.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveNote(tx.id)
+                            if (e.key === 'Escape') setEditingNoteId(null)
+                          }}
+                          className="w-full border-b border-blue-400 bg-transparent outline-none text-sm py-0.5"
+                          placeholder="Přidat popis…"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-1.5 group/desc">
+                          <span className={desc === '—' ? 'text-gray-300' : ''}>{desc}</span>
+                          <button
+                            onClick={() => startEditNote(tx)}
+                            className="opacity-0 group-hover/desc:opacity-100 text-gray-300 hover:text-gray-600 transition-opacity flex-shrink-0"
+                            title="Upravit popis"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
 
                     <td className="px-3 py-2.5 text-right tabular-nums font-medium text-green-700">
                       {isIncome ? fmtNum(amt) : ''}
