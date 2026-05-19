@@ -18,6 +18,7 @@ import {
   Users,
   User,
   Settings,
+  Landmark,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -51,6 +52,7 @@ const adminNavItems = [
     ],
   },
   { href: '/invoices/upload', label: 'AI Upload faktur', icon: Sparkles },
+  { href: '/banking', label: 'Bankovní výpis', icon: Landmark },
   { href: '/journal', label: 'Finanční deník', icon: BookOpen },
   { href: '/cenotvorba', label: 'Cenotvorba', icon: Calculator },
 ]
