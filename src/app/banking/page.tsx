@@ -51,6 +51,7 @@ interface ExpenseInvoice {
   date: string | null
   variable_symbol: string | null
   note: string | null
+  status: string | null
 }
 
 function fmtDate(d: string) {
@@ -60,6 +61,40 @@ function fmtDate(d: string) {
 
 function fmtNum(n: number) {
   return n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function scoreMatch(
+  tx: BankTx,
+  invAmount: number,
+  invName: string | null,
+  invStatus: string | null
+): number {
+  const txAmt = Math.abs(tx.amount_czk ?? tx.amount)
+  let score = 0
+
+  // Amount similarity — 0-60 pts
+  if (invAmount > 0 && txAmt > 0) {
+    const ratio = Math.min(invAmount, txAmt) / Math.max(invAmount, txAmt)
+    score += ratio * 60
+  }
+
+  // Name/text similarity — 0-40 pts (word overlap)
+  const txText = [tx.counterparty_name, tx.message, tx.note]
+    .filter(Boolean).join(' ').toLowerCase()
+  const invText = (invName ?? '').toLowerCase()
+  if (txText.length > 0 && invText.length > 0) {
+    const txWords = txText.split(/\W+/).filter(w => w.length > 2)
+    const invWords = invText.split(/\W+/).filter(w => w.length > 2)
+    const hits = txWords.filter(w =>
+      invWords.some(iw => iw.includes(w) || w.includes(iw))
+    ).length
+    score += (hits / Math.max(1, Math.min(txWords.length, invWords.length))) * 40
+  }
+
+  // Penalize already paid/matched
+  if (invStatus === 'paid' || invStatus === 'matched') score -= 25
+
+  return Math.round(score)
 }
 
 function accountLabel(acc: BankAccount) {
@@ -218,16 +253,26 @@ export default function BankingPage() {
     })
   }
 
-  // Picker items
-  const pickerTx = txs.find(t => t.id === pickerTxId)
+  // Picker items — scored by amount + name similarity, then filtered by search
+  const pickerTx = txs.find(t => t.id === pickerTxId) ?? null
   const sl = search.toLowerCase()
   const pickerItems = pickerTx?.type === 'income'
     ? invoices
         .filter(i => !sl || i.number?.toLowerCase().includes(sl) || i.subject_name?.toLowerCase().includes(sl))
-        .map(i => ({ id: i.id, label: i.number, sub: i.subject_name, amount: i.total, currency: i.currency, isExpense: false }))
+        .map(i => ({
+          id: i.id, label: i.number, sub: i.subject_name,
+          amount: i.total, currency: i.currency, isExpense: false,
+          score: pickerTx ? scoreMatch(pickerTx, i.total, i.subject_name, i.status) : 0,
+        }))
+        .sort((a, b) => b.score - a.score)
     : expenseInvoices
         .filter(i => !sl || i.supplier_name?.toLowerCase().includes(sl) || i.variable_symbol?.toLowerCase().includes(sl))
-        .map(i => ({ id: i.id, label: i.variable_symbol || i.supplier_name || '—', sub: i.supplier_name, amount: i.amount_czk ?? i.amount ?? 0, currency: i.currency, isExpense: true }))
+        .map(i => ({
+          id: i.id, label: i.variable_symbol || i.supplier_name || '—', sub: i.supplier_name,
+          amount: i.amount_czk ?? i.amount ?? 0, currency: i.currency, isExpense: true,
+          score: pickerTx ? scoreMatch(pickerTx, i.amount_czk ?? i.amount ?? 0, i.supplier_name, i.status) : 0,
+        }))
+        .sort((a, b) => b.score - a.score)
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear]
@@ -474,23 +519,47 @@ export default function BankingPage() {
             <div className="max-h-64 overflow-y-auto py-1">
               {pickerItems.length === 0 ? (
                 <p className="px-3 py-5 text-center text-xs text-gray-400">Nic nenalezeno</p>
-              ) : pickerItems.slice(0, 25).map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => handleSetMatch(pickerTxId, item.isExpense ? null : item.id, item.isExpense ? item.id : null)}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-2 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-blue-600 truncate">{item.label}</div>
-                    {item.sub && item.sub !== item.label && (
-                      <div className="text-xs text-gray-500 truncate">{item.sub}</div>
+              ) : (() => {
+                const top = pickerItems.filter(i => i.score >= 35).slice(0, 5)
+                const rest = pickerItems.filter(i => i.score < 35).slice(0, 20)
+                const renderItem = (item: typeof pickerItems[0]) => (
+                  <button
+                    key={item.id}
+                    onClick={() => handleSetMatch(pickerTxId, item.isExpense ? null : item.id, item.isExpense ? item.id : null)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-2 transition-colors"
+                  >
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span className={cn(
+                        'flex-shrink-0 h-2 w-2 rounded-full',
+                        item.score >= 60 ? 'bg-green-400' : item.score >= 35 ? 'bg-orange-300' : 'bg-gray-200'
+                      )} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-blue-600 truncate">{item.label}</div>
+                        {item.sub && item.sub !== item.label && (
+                          <div className="text-xs text-gray-500 truncate">{item.sub}</div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+                      {Math.round(Number(item.amount)).toLocaleString('cs-CZ')} {item.currency}
+                    </span>
+                  </button>
+                )
+                return (
+                  <>
+                    {top.length > 0 && !sl && (
+                      <>
+                        <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Nejlepší shody</p>
+                        {top.map(renderItem)}
+                      </>
                     )}
-                  </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
-                    {Math.round(Number(item.amount)).toLocaleString('cs-CZ')} {item.currency}
-                  </span>
-                </button>
-              ))}
+                    {rest.length > 0 && top.length > 0 && !sl && (
+                      <p className="px-3 py-1 mt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-300 border-t">Ostatní</p>
+                    )}
+                    {(sl ? pickerItems.slice(0, 25) : rest).map(renderItem)}
+                  </>
+                )
+              })()}
             </div>
             {(pickerTx?.matched_invoice_id || pickerTx?.matched_expense_invoice_id) && (
               <div className="border-t px-3 py-2">
