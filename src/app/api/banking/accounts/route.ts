@@ -11,6 +11,18 @@ export async function GET() {
   return NextResponse.json(data ?? [])
 }
 
+export async function POST(req: NextRequest) {
+  const supabase = createAdminSupabaseClient()
+  const { name, account_number, starting_balance } = await req.json()
+  const { data, error } = await supabase
+    .from('bank_accounts')
+    .insert({ name, account_number: account_number ?? null, starting_balance: starting_balance ?? 0 })
+    .select()
+    .single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data)
+}
+
 export async function PATCH(req: NextRequest) {
   const supabase = createAdminSupabaseClient()
   const { id, starting_balance, name, account_number } = await req.json()
