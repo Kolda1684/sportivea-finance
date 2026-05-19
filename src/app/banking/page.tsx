@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Loader2, X, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+interface BankAccount {
+  id: string
+  name: string
+  account_number: string | null
+  starting_balance: number | null
+}
+
 interface BankTx {
   id: string
   date: string
@@ -15,6 +22,7 @@ interface BankTx {
   message: string | null
   counterparty_name: string | null
   variable_symbol: string | null
+  account_id: string | null
   matched_invoice_id: string | null
   matched_expense_invoice_id: string | null
   invoices?: { number: string; subject_name: string | null } | null
@@ -46,24 +54,33 @@ interface ExpenseInvoice {
 
 function fmtDate(d: string) {
   const dt = new Date(d + 'T12:00:00')
-  return `${dt.getDate()}.${dt.getMonth() + 1}`
+  return `${dt.getDate()}.${dt.getMonth() + 1}.`
 }
 
 function fmtNum(n: number) {
   return n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function accountLabel(acc: BankAccount) {
+  if (acc.account_number) return acc.account_number
+  return acc.name.replace('FIO_ucet_', 'Účet ').replace(/_/g, ' ')
+}
+
 export default function BankingPage() {
+  const [accounts, setAccounts] = useState<BankAccount[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [txs, setTxs] = useState<BankTx[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [expenseInvoices, setExpenseInvoices] = useState<ExpenseInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear())
-  const [startingBalance, setStartingBalance] = useState(0)
+
+  // Per-account editable starting balances (override DB value locally)
+  const [balanceOverrides, setBalanceOverrides] = useState<Record<string, number>>({})
   const [editingBalance, setEditingBalance] = useState(false)
 
-  // Picker state
+  // Picker
   const [pickerTxId, setPickerTxId] = useState<string | null>(null)
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null)
   const [search, setSearch] = useState('')
@@ -72,38 +89,48 @@ export default function BankingPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [txData, invData, expData, accData] = await Promise.all([
-      fetch('/api/banking/transactions?limit=1000').then(r => r.json()),
+      fetch('/api/banking/transactions?limit=2000').then(r => r.json()),
       fetch('/api/invoices').then(r => r.json()),
       fetch('/api/expense-invoices').then(r => r.json()),
       fetch('/api/banking/accounts').then(r => r.json()),
     ])
-    const sorted = (Array.isArray(txData) ? txData : [])
-      .sort((a: BankTx, b: BankTx) => a.date.localeCompare(b.date))
-    setTxs(sorted)
+    const accs: BankAccount[] = Array.isArray(accData) ? accData : []
+    setAccounts(accs)
+    if (accs.length > 0 && !selectedId) setSelectedId(accs[0].id)
+    setTxs(Array.isArray(txData) ? txData : [])
     setInvoices(Array.isArray(invData) ? invData : [])
     setExpenseInvoices(Array.isArray(expData) ? expData : [])
-    if (Array.isArray(accData) && accData.length > 0) {
-      setStartingBalance(Number(accData[0].starting_balance) || 0)
-    }
     setLoading(false)
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
-  // Auto-focus search when picker opens
   useEffect(() => {
     if (pickerTxId) setTimeout(() => searchRef.current?.focus(), 50)
   }, [pickerTxId])
 
-  // Running balance rows (filtered by year)
-  const filteredTxs = txs.filter(tx => tx.date.startsWith(String(yearFilter)))
-  let balance = startingBalance
-  const rows: BankTxRow[] = filteredTxs.map(tx => {
+  // Current account
+  const currentAccount = accounts.find(a => a.id === selectedId)
+  const startingBal = selectedId && balanceOverrides[selectedId] !== undefined
+    ? balanceOverrides[selectedId]
+    : Number(currentAccount?.starting_balance ?? 0)
+
+  // Filter by account + year, calculate running balance ascending, then reverse for display
+  const accountTxs = txs
+    .filter(tx => tx.account_id === selectedId && tx.date.startsWith(String(yearFilter)))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  let bal = startingBal
+  const withBalances: BankTxRow[] = accountTxs.map(tx => {
     const amt = Math.abs(tx.amount_czk ?? tx.amount)
-    if (tx.type === 'income') balance += amt
-    else balance -= amt
-    return { ...tx, runningBalance: balance }
+    if (tx.type === 'income') bal += amt
+    else bal -= amt
+    return { ...tx, runningBalance: bal }
   })
+  // Newest first
+  const rows = [...withBalances].reverse()
+  const currentBalance = withBalances.length > 0 ? withBalances[withBalances.length - 1].runningBalance : startingBal
+  const unmatched = rows.filter(r => r.status === 'unmatched').length
 
   function getDocNumber(tx: BankTx): string | null {
     if (tx.invoices?.number) return tx.invoices.number
@@ -140,8 +167,7 @@ export default function BankingPage() {
     const inv = invoices.find(i => i.id === invoiceId)
     const exp = expenseInvoices.find(e => e.id === expenseInvoiceId)
     setTxs(prev => prev.map(tx => tx.id !== txId ? tx : {
-      ...tx,
-      status: 'matched',
+      ...tx, status: 'matched',
       matched_invoice_id: invoiceId,
       matched_expense_invoice_id: expenseInvoiceId,
       invoices: inv ? { number: inv.number, subject_name: inv.subject_name } : null,
@@ -170,7 +196,7 @@ export default function BankingPage() {
     setSyncing(false)
   }
 
-  // Picker items (invoices or expense invoices depending on transaction type)
+  // Picker items
   const pickerTx = txs.find(t => t.id === pickerTxId)
   const sl = search.toLowerCase()
   const pickerItems = pickerTx?.type === 'income'
@@ -183,12 +209,11 @@ export default function BankingPage() {
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear]
-  const unmatched = rows.filter(r => r.status === 'unmatched').length
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bankovní výpis</h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -215,6 +240,26 @@ export default function BankingPage() {
         </div>
       </div>
 
+      {/* Účet tabs */}
+      {accounts.length > 0 && (
+        <div className="flex gap-1 mb-4 border-b">
+          {accounts.map(acc => (
+            <button
+              key={acc.id}
+              onClick={() => setSelectedId(acc.id)}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+                selectedId === acc.id
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              )}
+            >
+              {accountLabel(acc)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
@@ -224,7 +269,7 @@ export default function BankingPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-14">Datum</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Datum</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-44">Č.dokl.</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Popis</th>
                 <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Příjmy</th>
@@ -233,33 +278,15 @@ export default function BankingPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {/* Počáteční stav */}
-              <tr className="bg-gray-50/60">
+              {/* Aktuální stav — nahoře */}
+              <tr className="bg-gray-900 text-white">
                 <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">BV</td>
-                <td className="px-3 py-2.5 font-bold text-gray-600 text-xs">x</td>
-                <td className="px-3 py-2.5 font-bold text-gray-800">Počáteční stav</td>
+                <td className="px-3 py-2.5 font-bold text-gray-300 text-xs">x</td>
+                <td className="px-3 py-2.5 font-bold">Aktuální stav</td>
                 <td />
                 <td />
-                <td className="px-3 py-2.5 text-right font-bold text-gray-900">
-                  {editingBalance ? (
-                    <input
-                      autoFocus
-                      type="number"
-                      value={startingBalance}
-                      onChange={e => setStartingBalance(Number(e.target.value))}
-                      onBlur={() => setEditingBalance(false)}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBalance(false) }}
-                      className="w-32 text-right border rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  ) : (
-                    <button
-                      onClick={() => setEditingBalance(true)}
-                      className="hover:bg-gray-200 rounded px-1 tabular-nums"
-                      title="Klikni pro úpravu počátečního zůstatku"
-                    >
-                      {fmtNum(startingBalance)}
-                    </button>
-                  )}
+                <td className="px-3 py-2.5 text-right font-bold tabular-nums">
+                  {fmtNum(currentBalance)}
                 </td>
               </tr>
 
@@ -282,7 +309,6 @@ export default function BankingPage() {
                   <tr key={tx.id} className="hover:bg-gray-50/70 group">
                     <td className="px-3 py-2.5 text-gray-500 tabular-nums">{fmtDate(tx.date)}</td>
 
-                    {/* Č.dokl. — kliknutí otevře picker */}
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1">
                         <button
@@ -322,21 +348,53 @@ export default function BankingPage() {
                   </tr>
                 )
               })}
+
+              {/* Počáteční stav — dole */}
+              {rows.length > 0 && (
+                <tr className="bg-gray-50/60 border-t-2 border-gray-200">
+                  <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">BV</td>
+                  <td className="px-3 py-2.5 font-bold text-gray-600 text-xs">x</td>
+                  <td className="px-3 py-2.5 font-bold text-gray-800">Počáteční stav</td>
+                  <td />
+                  <td />
+                  <td className="px-3 py-2.5 text-right font-bold text-gray-900 tabular-nums">
+                    {editingBalance ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        value={selectedId ? (balanceOverrides[selectedId] ?? Number(currentAccount?.starting_balance ?? 0)) : 0}
+                        onChange={e => selectedId && setBalanceOverrides(prev => ({ ...prev, [selectedId]: Number(e.target.value) }))}
+                        onBlur={() => setEditingBalance(false)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBalance(false) }}
+                        className="w-32 text-right border rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setEditingBalance(true)}
+                        className="hover:bg-gray-200 rounded px-1 tabular-nums"
+                        title="Klikni pro úpravu počátečního zůstatku"
+                      >
+                        {fmtNum(startingBal)}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )}
             </tbody>
 
             {rows.length > 0 && (
               <tfoot className="border-t bg-gray-50">
                 <tr>
-                  <td colSpan={3} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem</td>
+                  <td colSpan={3} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Celkem {yearFilter}
+                  </td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-bold text-green-700">
                     {fmtNum(rows.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount_czk ?? r.amount), 0))}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-bold text-red-600">
                     {fmtNum(rows.filter(r => r.type !== 'income').reduce((s, r) => s + Math.abs(r.amount_czk ?? r.amount), 0))}
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums font-bold text-gray-900">
-                    {fmtNum(balance)}
-                  </td>
+                  <td />
                 </tr>
               </tfoot>
             )}
@@ -344,13 +402,10 @@ export default function BankingPage() {
         </div>
       )}
 
-      {/* Picker — fixed overlay, žádné overflow problémy */}
+      {/* Picker — fixed overlay */}
       {pickerTxId && pickerPos && (
         <>
-          {/* Backdrop */}
           <div className="fixed inset-0 z-40" onClick={closePicker} />
-
-          {/* Dropdown */}
           <div
             className="fixed z-50 w-80 bg-white rounded-xl border shadow-xl"
             style={{ top: pickerPos.top, left: Math.min(pickerPos.left, window.innerWidth - 340) }}
@@ -368,18 +423,13 @@ export default function BankingPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-
             <div className="max-h-64 overflow-y-auto py-1">
               {pickerItems.length === 0 ? (
                 <p className="px-3 py-5 text-center text-xs text-gray-400">Nic nenalezeno</p>
               ) : pickerItems.slice(0, 25).map(item => (
                 <button
                   key={item.id}
-                  onClick={() => handleSetMatch(
-                    pickerTxId,
-                    item.isExpense ? null : item.id,
-                    item.isExpense ? item.id : null
-                  )}
+                  onClick={() => handleSetMatch(pickerTxId, item.isExpense ? null : item.id, item.isExpense ? item.id : null)}
                   className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-2 transition-colors"
                 >
                   <div className="min-w-0">
@@ -394,7 +444,6 @@ export default function BankingPage() {
                 </button>
               ))}
             </div>
-
             {(pickerTx?.matched_invoice_id || pickerTx?.matched_expense_invoice_id) && (
               <div className="border-t px-3 py-2">
                 <button
