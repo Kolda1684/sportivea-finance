@@ -129,16 +129,61 @@ export async function POST(req: NextRequest) {
 
   // 5. Ulož do Supabase expense_invoices
   const supabase = createAdminSupabaseClient()
-  await supabase.from('expense_invoices').upsert({
+  const invoiceAmount = extracted.total_with_vat ?? extracted.total_without_vat ?? null
+  const { data: savedExpense } = await supabase.from('expense_invoices').upsert({
     supplier_name: extracted.supplier_name,
-    amount: extracted.total_with_vat ?? extracted.total_without_vat,
+    amount: invoiceAmount,
+    amount_czk: extracted.currency === 'CZK' || !extracted.currency ? invoiceAmount : null,
     currency: extracted.currency ?? 'CZK',
     date: extracted.issued_on,
     due_date: extracted.due_on,
     variable_symbol: extracted.variable_symbol,
     note: extracted.invoice_number,
     fakturoid_id: String(created.id),
-  }, { onConflict: 'fakturoid_id' })
+  }, { onConflict: 'fakturoid_id' }).select('id').single()
 
-  return NextResponse.json({ ok: true, fakturoid_id: created.id, number: created.number, attachmentError })
+  // 6. Auto-match: hledej nejpravděpodobnější bankovní transakci
+  let suggestedTx = null
+  if (invoiceAmount && extracted.issued_on) {
+    const dateFrom = new Date(extracted.issued_on)
+    dateFrom.setDate(dateFrom.getDate() - 60)
+    const dateTo = new Date(extracted.issued_on)
+    dateTo.setDate(dateTo.getDate() + 7)
+
+    const { data: candidates } = await supabase
+      .from('bank_transactions')
+      .select('id, date, amount, amount_czk, currency, counterparty_name, message')
+      .eq('status', 'unmatched')
+      .eq('type', 'expense')
+      .gte('date', dateFrom.toISOString().slice(0, 10))
+      .lte('date', dateTo.toISOString().slice(0, 10))
+      .limit(60)
+
+    if (candidates && candidates.length > 0) {
+      const supplierText = (extracted.supplier_name ?? '').toLowerCase()
+      const scored = candidates.map(tx => {
+        const txAmt = Math.abs(tx.amount_czk ?? tx.amount)
+        const ratio = invoiceAmount > 0 ? Math.min(txAmt, invoiceAmount) / Math.max(txAmt, invoiceAmount) : 0
+        let score = ratio * 60
+        const txText = [tx.counterparty_name, tx.message].filter(Boolean).join(' ').toLowerCase()
+        if (txText && supplierText) {
+          const txWords = txText.split(/\W+/).filter((w: string) => w.length > 2)
+          const invWords = supplierText.split(/\W+/).filter((w: string) => w.length > 2)
+          const hits = txWords.filter((w: string) => invWords.some((iw: string) => iw.includes(w) || w.includes(iw))).length
+          score += (hits / Math.max(1, Math.min(txWords.length, invWords.length))) * 40
+        }
+        return { ...tx, score: Math.round(score) }
+      }).sort((a, b) => b.score - a.score)
+      if (scored[0].score >= 30) suggestedTx = scored[0]
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    fakturoid_id: created.id,
+    number: created.number,
+    attachmentError,
+    expenseInvoiceId: savedExpense?.id ?? null,
+    suggestedTx,
+  })
 }

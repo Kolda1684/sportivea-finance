@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Upload, FileText, CheckCircle, AlertCircle, Loader2, X, Plus, Trash2,
-  Clock, ChevronRight,
+  Clock, ChevronRight, Link2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -44,16 +44,30 @@ interface ExtractedInvoice {
 
 type ItemStatus = 'pending' | 'reading' | 'extracted' | 'submitting' | 'done' | 'error'
 
+interface SuggestedTx {
+  id: string
+  date: string
+  amount: number
+  amount_czk: number | null
+  currency: string
+  counterparty_name: string | null
+  message: string | null
+  score: number
+}
+
 interface QueueItem {
   id: string
   file: File
-  previewUrl: string           // blob URL — works for both PDF and images
+  previewUrl: string
   status: ItemStatus
   extracted: ExtractedInvoice | null
   result: { fakturoid_id: number; number: string } | null
   errorMsg: string
   duzpManual: boolean
   vatCalcMode: 'from_base' | 'from_total'
+  suggestedTx: SuggestedTx | null
+  expenseInvoiceId: string | null
+  matchConfirmed: boolean
 }
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -147,6 +161,9 @@ export default function UploadInvoicePage() {
       errorMsg: '',
       duzpManual: false,
       vatCalcMode: 'from_base',
+      suggestedTx: null,
+      expenseInvoiceId: null,
+      matchConfirmed: false,
     }))
     setQueue(prev => {
       const updated = [...prev, ...newItems]
@@ -183,13 +200,27 @@ export default function UploadInvoicePage() {
         const detail = data.details ? JSON.stringify(data.details, null, 2) : ''
         throw new Error(`${data.error ?? 'Chyba'}${detail ? '\n' + detail : ''}`)
       }
-      patch(id, { status: 'done', result: data })
+      patch(id, {
+        status: 'done',
+        result: data,
+        suggestedTx: data.suggestedTx ?? null,
+        expenseInvoiceId: data.expenseInvoiceId ?? null,
+      })
       if (data.attachmentError) {
         patch(id, { errorMsg: `Vloženo, ale příloha selhala: ${data.attachmentError}` })
       }
     } catch (e: unknown) {
       patch(id, { status: 'error', errorMsg: e instanceof Error ? e.message : 'Neznámá chyba' })
     }
+  }
+
+  async function confirmMatch(queueId: string, txId: string, expenseInvoiceId: string) {
+    await fetch(`/api/banking/transactions/${txId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_match', expense_invoice_id: expenseInvoiceId }),
+    })
+    patch(queueId, { matchConfirmed: true })
   }
 
   function removeItem(id: string) {
@@ -372,17 +403,60 @@ export default function UploadInvoicePage() {
             )}
 
             {selected && selected.status === 'done' && selected.result && (
-              <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
-                  <p className="font-semibold text-green-900">
-                    Náklad <span className="font-mono">{selected.result.number}</span> byl vložen do Fakturoidu
-                  </p>
+              <div className="space-y-3">
+                <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
+                    <p className="font-semibold text-green-900">
+                      Náklad <span className="font-mono">{selected.result.number}</span> byl vložen do Fakturoidu
+                    </p>
+                  </div>
+                  {selected.errorMsg && (
+                    <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
+                      {selected.errorMsg}
+                    </p>
+                  )}
                 </div>
-                {selected.errorMsg && (
-                  <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
-                    {selected.errorMsg}
-                  </p>
+
+                {/* Bank match suggestion */}
+                {selected.suggestedTx && selected.expenseInvoiceId && !selected.matchConfirmed && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-start gap-3">
+                    <Link2 className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-blue-900 mb-0.5">Pravděpodobná shoda v bance</p>
+                      <p className="text-sm text-blue-700">
+                        {new Date(selected.suggestedTx.date + 'T12:00:00').toLocaleDateString('cs-CZ')}
+                        {' · '}
+                        {selected.suggestedTx.counterparty_name || selected.suggestedTx.message || '—'}
+                        {' · '}
+                        <span className="font-medium tabular-nums">
+                          {Math.abs(selected.suggestedTx.amount_czk ?? selected.suggestedTx.amount).toLocaleString('cs-CZ', { minimumFractionDigits: 2 })} {selected.suggestedTx.currency}
+                        </span>
+                      </p>
+                      <p className="text-xs text-blue-500 mt-0.5">Shoda: {selected.suggestedTx.score} / 100</p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => confirmMatch(selected.id, selected.suggestedTx!.id, selected.expenseInvoiceId!)}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Spárovat
+                      </button>
+                      <button
+                        onClick={() => patch(selected.id, { suggestedTx: null })}
+                        className="px-3 py-1.5 border border-blue-200 text-blue-600 text-xs font-medium rounded-lg hover:bg-blue-100 transition-colors"
+                      >
+                        Přeskočit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {selected.matchConfirmed && (
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 flex items-center gap-2 text-sm text-blue-700">
+                    <CheckCircle className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    Faktura spárována s bankovní transakcí
+                  </div>
                 )}
               </div>
             )}
