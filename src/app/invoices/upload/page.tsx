@@ -509,7 +509,7 @@ function DetailPanel({
     <div className="flex gap-4 items-start">
 
       {/* PDF / Image preview */}
-      <div className="w-80 flex-shrink-0 rounded-xl border overflow-hidden bg-gray-100 sticky top-0" style={{ height: '85vh' }}>
+      <div className="w-[520px] flex-shrink-0 rounded-xl border overflow-hidden bg-gray-100 sticky top-0" style={{ height: '90vh' }}>
         {isPdf ? (
           <iframe
             src={item.previewUrl}
