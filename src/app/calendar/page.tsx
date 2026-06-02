@@ -27,7 +27,7 @@ const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
 }
 
 const STATUS_LABELS: Record<CalendarEventStatus, string> = {
-  neni_potvrzeno: 'NENÍ VŮBEC POTVRZENO',
+  neni_potvrzeno: '❌ NENÍ VŮBEC POTVRZENO',
   ceka_potvrzeni: '⏳ ČEKÁ SE NA POTVRZENÍ',
   potvrzeno_lidi: '✅ POTVRZENO LIDI',
   potvrzeno: '📅 POTVRZENO',
@@ -204,9 +204,9 @@ export default function CalendarPage() {
   return (
     <div className="flex h-full">
       {/* Main calendar area */}
-      <div className={cn('flex-1 p-6 min-w-0 transition-all duration-300', panelOpen && 'mr-[420px]')}>
+      <div className={cn('flex flex-col flex-1 min-w-0 transition-all duration-300', panelOpen && 'mr-[420px]')}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-white flex-shrink-0">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-gray-900">Kalendář</h1>
             <div className="flex items-center gap-1">
@@ -241,26 +241,29 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        {/* Calendar grid */}
-        <div className="bg-white rounded-xl border overflow-hidden">
-          <div className="grid grid-cols-7 border-b">
+        {/* Calendar grid — full height */}
+        <div className="flex flex-col flex-1 overflow-hidden bg-white border-t">
+          <div className="grid grid-cols-7 border-b flex-shrink-0">
             {DAYS_CS.map(d => (
-              <div key={d} className="py-2.5 text-center text-xs font-semibold text-gray-500">
+              <div key={d} className="py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 {d}
               </div>
             ))}
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
+            <div className="flex items-center justify-center flex-1">
               <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
             </div>
           ) : fetchError ? (
-            <div className="flex items-center justify-center py-20 text-sm text-red-500">
+            <div className="flex items-center justify-center flex-1 text-sm text-red-500">
               Chyba při načítání: {fetchError}
             </div>
           ) : (
-            <div className="grid grid-cols-7 divide-x divide-y">
+            <div
+              className="flex-1 grid grid-cols-7 divide-x divide-y overflow-hidden"
+              style={{ gridTemplateRows: `repeat(${cells.length / 7}, 1fr)` }}
+            >
               {cells.map((day, i) => {
                 const dayEvents = day ? eventsForDay(day) : []
                 const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
@@ -269,7 +272,7 @@ export default function CalendarPage() {
                     key={i}
                     onClick={() => day && openNew(day)}
                     className={cn(
-                      'min-h-[100px] p-1.5 cursor-pointer group',
+                      'p-1.5 cursor-pointer group overflow-hidden',
                       !day && 'bg-gray-50 cursor-default',
                       day && 'hover:bg-gray-50/80'
                     )}
@@ -313,7 +316,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Right panel */}
+      {/* Right panel — fixed, nad kalendářem */}
       <div className={cn(
         'fixed top-0 right-0 h-full w-[420px] bg-white border-l shadow-xl flex flex-col transition-transform duration-300 z-40',
         panelOpen ? 'translate-x-0' : 'translate-x-full'
