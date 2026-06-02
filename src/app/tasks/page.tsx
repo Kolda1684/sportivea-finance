@@ -34,7 +34,19 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; bg: string; dot: string
   hotovo:    { label: 'Hotovo',      bg: 'bg-green-50 text-green-700',   dot: 'bg-green-500' },
 }
 const STATUSES = Object.keys(STATUS_CONFIG) as TaskStatus[]
-const TASK_TYPES = ['Reels', 'Daily', 'Long-form', 'Natáčení', 'Grafika', 'Captions', 'Stories', 'YouTube', 'Jiné']
+const TASK_TYPES = ['📱 Reels', '📅 Daily', '🎬 Long-form', '🎥 Natáčení', '🎨 Grafika', '✍️ Captions', '📲 Stories', '▶️ YouTube', '📌 Jiné']
+
+const TYPE_COLORS: Record<string, string> = {
+  '📱 Reels':     'bg-pink-50 text-pink-700 border-pink-200',
+  '📅 Daily':     'bg-blue-50 text-blue-700 border-blue-200',
+  '🎬 Long-form': 'bg-purple-50 text-purple-700 border-purple-200',
+  '🎥 Natáčení':  'bg-orange-50 text-orange-700 border-orange-200',
+  '🎨 Grafika':   'bg-teal-50 text-teal-700 border-teal-200',
+  '✍️ Captions':  'bg-yellow-50 text-yellow-800 border-yellow-200',
+  '📲 Stories':   'bg-rose-50 text-rose-700 border-rose-200',
+  '▶️ YouTube':   'bg-red-50 text-red-700 border-red-200',
+  '📌 Jiné':      'bg-gray-100 text-gray-600 border-gray-200',
+}
 
 // ── Inline cell ──────────────────────────────────────────────
 function Cell({ value, type = 'text', options, placeholder = '—', onSave, className = '' }: {
@@ -78,9 +90,9 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
   const cfg = STATUS_CONFIG[value]
   return (
     <div className="relative inline-block">
-      <button onClick={() => onSave && setOpen(o => !o)} className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium', cfg.bg, onSave && 'hover:opacity-80 cursor-pointer')}>
-        <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', cfg.dot)} />{cfg.label}
-        {onSave && <ChevronDown className="h-3 w-3 opacity-40" />}
+      <button onClick={() => onSave && setOpen(o => !o)} className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium', cfg.bg, onSave && 'hover:opacity-80 cursor-pointer')}>
+        <span className={cn('h-2 w-2 rounded-full flex-shrink-0', cfg.dot)} />{cfg.label}
+        {onSave && <ChevronDown className="h-3.5 w-3.5 opacity-40" />}
       </button>
       {open && <>
         <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
@@ -89,6 +101,37 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
             <button key={s} onClick={() => { onSave?.(s); setOpen(false) }}
               className={cn('w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-gray-50 transition-colors', s === value && 'bg-gray-50')}>
               <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', STATUS_CONFIG[s].dot)} />{STATUS_CONFIG[s].label}
+            </button>
+          ))}
+        </div>
+      </>}
+    </div>
+  )
+}
+
+// ── Type badge ────────────────────────────────────────────────
+function TypeBadge({ value, onSave }: { value: string | null; onSave?: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const color = TYPE_COLORS[value ?? ''] ?? 'bg-gray-100 text-gray-500 border-gray-200'
+  return (
+    <div className="relative inline-block">
+      <button onClick={() => onSave && setOpen(o => !o)}
+        className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border whitespace-nowrap',
+          value ? color : 'text-gray-300', onSave && 'cursor-pointer hover:opacity-80')}>
+        {value || '—'}
+        {onSave && value && <ChevronDown className="h-3 w-3 opacity-40" />}
+      </button>
+      {open && <>
+        <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+        <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+          <button onClick={() => { onSave?.(''); setOpen(false) }}
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">— žádný —</button>
+          {TASK_TYPES.map(t => (
+            <button key={t} onClick={() => { onSave?.(t); setOpen(false) }}
+              className="w-full text-left px-3 py-1.5 hover:bg-gray-50 transition-colors">
+              <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border', TYPE_COLORS[t] ?? 'bg-gray-100 text-gray-500 border-gray-200')}>
+                {t}
+              </span>
             </button>
           ))}
         </div>
@@ -497,7 +540,7 @@ export default function TasksPage() {
   const totalHours = filtered.reduce((s, t) => s + (t.hours ?? 0) + (t.minutes ?? 0) / 60, 0)
   const doneCount = filtered.filter(t => t.status === 'hotovo').length
 
-  const TH = 'border border-gray-200 px-2 py-2 font-semibold text-gray-500 text-xs bg-gray-50 text-left'
+  const TH = 'border border-gray-200 px-3 py-3 font-semibold text-gray-500 text-xs bg-gray-50 text-left'
   const TD = 'border border-gray-200 px-0 py-0'
 
   return (
@@ -600,7 +643,6 @@ export default function TasksPage() {
                 {isAdmin && <>
                   <th className={cn(TH, 'w-[75px] text-right')}>Jednor.</th>
                   <th className={cn(TH, 'w-[80px] text-right')}>Odměna</th>
-                  <th className={cn(TH, 'w-[105px]')}>Editor</th>
                 </>}
                 <th className={cn(TH, 'w-8')} />
               </tr>
@@ -623,8 +665,8 @@ export default function TasksPage() {
                   <td className={TD} onClick={e => e.stopPropagation()}>
                     <ClientCell value={task.client} companies={companies} onSave={v => updateField(task.id, 'client', v || null)} />
                   </td>
-                  <td className={TD} onClick={e => e.stopPropagation()}>
-                    <Cell value={task.task_type} type="select" options={TASK_TYPES} onSave={v => updateField(task.id, 'task_type', v || null)} placeholder="—" className="text-gray-500" />
+                  <td className="border border-gray-200 px-2 py-1" onClick={e => e.stopPropagation()}>
+                    <TypeBadge value={task.task_type} onSave={v => updateField(task.id, 'task_type', v || null)} />
                   </td>
                   <td className={TD} onClick={e => e.stopPropagation()}>
                     <Cell value={task.hours || null} type="number" onSave={v => updateField(task.id, 'hours', v ? Number(v) : 0)} placeholder="0" className="text-right text-gray-700" />
@@ -643,7 +685,6 @@ export default function TasksPage() {
                     <td className={TD} onClick={e => e.stopPropagation()}>
                       <Cell value={task.reward || null} type="number" onSave={v => updateField(task.id, 'reward', v ? Number(v) : null)} placeholder="0" className="text-right font-semibold text-gray-900" />
                     </td>
-                    <td className="border border-gray-200 px-2 py-1 text-xs text-gray-500">{task.assignee?.name ?? '—'}</td>
                   </>}
                   <td className="border border-gray-200 px-1 py-0 text-center" onClick={e => e.stopPropagation()}>
                     {isAdmin && (
