@@ -85,6 +85,7 @@ export default function CalendarPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [me, setMe] = useState<{ id: string } | null>(null)
   const [editNotes, setEditNotes] = useState('')
@@ -116,6 +117,7 @@ export default function CalendarPage() {
   useEffect(() => {
     fetch('/api/init').then(r => r.json()).then(data => {
       setProfiles(data.profiles ?? [])
+      setCompanies(data.companies ?? [])
       setMe(data.me ?? null)
     })
   }, [])
@@ -439,11 +441,15 @@ export default function CalendarPage() {
                 <div>
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Klient</label>
                   <input
+                    list="clients-list"
                     value={form.client}
                     onChange={e => setForm(f => ({ ...f, client: e.target.value }))}
-                    placeholder="Olympijský tým"
+                    placeholder="Vybrat nebo napsat…"
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <datalist id="clients-list">
+                    {companies.map(c => <option key={c.id} value={c.name} />)}
+                  </datalist>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Lokace</label>
