@@ -144,7 +144,7 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
 }
 
 // ── Type badge ────────────────────────────────────────────────
-const DROPDOWN_H = 280 // odhadovaná výška dropdownu px
+const DROPDOWN_H = 230 // odhadovaná výška dropdownu px
 function TypeBadge({ value, onSave }: { value: string | null; onSave?: (v: string) => void }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -175,11 +175,11 @@ function TypeBadge({ value, onSave }: { value: string | null; onSave?: (v: strin
         <div className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
           style={{ top: pos.top, left: pos.left }}>
           <button onClick={e => { e.stopPropagation(); onSave?.(''); setPos(null) }}
-            className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">— žádný —</button>
+            className="w-full text-left px-3 py-1 text-xs text-gray-400 hover:bg-gray-50">— žádný —</button>
           {TASK_TYPES.map(t => (
             <button key={t} onClick={e => { e.stopPropagation(); onSave?.(t); setPos(null) }}
-              className="w-full text-left px-3 py-1.5 hover:bg-gray-50 transition-colors">
-              <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border', TYPE_COLORS[t] ?? 'bg-gray-100 text-gray-500 border-gray-200')}>
+              className="w-full text-left px-3 py-1 hover:bg-gray-50 transition-colors">
+              <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border', TYPE_COLORS[t] ?? 'bg-gray-100 text-gray-500 border-gray-200')}>
                 {t}
               </span>
             </button>
