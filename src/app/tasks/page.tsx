@@ -690,7 +690,7 @@ export default function TasksPage() {
             </thead>
             <tbody>
               {filtered.map((task, i) => (
-                <tr key={task.id} className={cn('group hover:brightness-95 transition-colors cursor-pointer', monthRowColor(task.month))} onClick={() => setPanel(task)}>
+                <tr key={task.id} className={cn('group cursor-pointer', monthRowColor(task.month))} onClick={() => setPanel(task)}>
                   <td className="border border-gray-200 px-2 py-0 text-xs text-gray-300 text-center select-none bg-gray-50/40">{i + 1}</td>
                   <td className={TD} onClick={e => e.stopPropagation()}>
                     <div className="flex items-center">
