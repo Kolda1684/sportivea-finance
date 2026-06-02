@@ -13,18 +13,29 @@ export async function GET(req: NextRequest) {
 
   let query = admin
     .from('calendar_events')
-    .select(`
-      *,
-      assignees:calendar_event_assignees(user_id, profile:profiles(id, name, email))
-    `)
+    .select('*, assignees:calendar_event_assignees(user_id)')
     .order('start_date', { ascending: true })
 
   if (from) query = query.gte('start_date', from)
   if (to) query = query.lte('start_date', to)
 
-  const { data, error } = await query
+  const { data: events, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+
+  // Načti profily zvlášť — obchází chybějící FK profiles↔calendar_event_assignees
+  const userIds = [...new Set((events ?? []).flatMap(e => (e.assignees ?? []).map((a: { user_id: string }) => a.user_id)))]
+  const profileMap: Record<string, { id: string; name: string; email: string }> = {}
+  if (userIds.length > 0) {
+    const { data: profiles } = await admin.from('profiles').select('id, name, email').in('id', userIds)
+    for (const p of profiles ?? []) profileMap[p.id] = p
+  }
+
+  const result = (events ?? []).map(e => ({
+    ...e,
+    assignees: (e.assignees ?? []).map((a: { user_id: string }) => ({ ...a, profile: profileMap[a.user_id] ?? null })),
+  }))
+
+  return NextResponse.json(result)
 }
 
 export async function POST(req: NextRequest) {
