@@ -70,6 +70,7 @@ export default function CalendarPage() {
   const [month, setMonth] = useState(now.getMonth())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [saving, setSaving] = useState(false)
@@ -86,7 +87,13 @@ export default function CalendarPage() {
     const from = new Date(year, month, 1).toISOString().split('T')[0]
     const to = new Date(year, month + 1, 0).toISOString().split('T')[0]
     const res = await fetch(`/api/calendar?from=${from}&to=${to}`)
-    if (res.ok) setEvents(await res.json())
+    if (res.ok) {
+      setEvents(await res.json())
+      setFetchError(null)
+    } else {
+      const err = await res.json().catch(() => ({}))
+      setFetchError(err.error ?? `HTTP ${res.status}`)
+    }
     setLoading(false)
   }, [year, month])
 
@@ -235,6 +242,10 @@ export default function CalendarPage() {
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </div>
+          ) : fetchError ? (
+            <div className="flex items-center justify-center py-20 text-sm text-red-500">
+              Chyba při načítání: {fetchError}
             </div>
           ) : (
             <div className="grid grid-cols-7 divide-x divide-y">

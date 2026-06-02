@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     .from('calendar_events')
     .select(`
       *,
-      assignees:calendar_event_assignees(user_id, profile:profiles!calendar_event_assignees_user_id_fkey(id, name, email))
+      assignees:calendar_event_assignees(user_id, profile:profiles(id, name, email))
     `)
     .order('start_date', { ascending: true })
 
