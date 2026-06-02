@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Načti profily zvlášť — obchází chybějící FK profiles↔calendar_event_assignees
-  const userIds = [...new Set((events ?? []).flatMap(e => (e.assignees ?? []).map((a: { user_id: string }) => a.user_id)))]
+  const userIds = Array.from(new Set((events ?? []).flatMap(e => (e.assignees ?? []).map((a: { user_id: string }) => a.user_id))))
   const profileMap: Record<string, { id: string; name: string; email: string }> = {}
   if (userIds.length > 0) {
     const { data: profiles } = await admin.from('profiles').select('id, name, email').in('id', userIds)
