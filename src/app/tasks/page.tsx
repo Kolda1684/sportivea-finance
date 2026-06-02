@@ -172,7 +172,7 @@ function TypeBadge({ value, onSave }: { value: string | null; onSave?: (v: strin
       </button>
       {pos && <>
         <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setPos(null) }} />
-        <div className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
+        <div className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-fit min-w-[160px]"
           style={{ top: pos.top, left: pos.left }}>
           <button onClick={e => { e.stopPropagation(); onSave?.(''); setPos(null) }}
             className="w-full text-left px-3 py-1 text-xs text-gray-400 hover:bg-gray-50">— žádný —</button>
