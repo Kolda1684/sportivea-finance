@@ -115,7 +115,9 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
     e.stopPropagation()
     if (!onSave) return
     const r = btnRef.current!.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: r.left })
+    const spaceBelow = window.innerHeight - r.bottom
+    const top = spaceBelow < 120 ? r.top - 120 - 4 : r.bottom + 4
+    setPos({ top, left: r.left })
   }
 
   return (
@@ -142,25 +144,31 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
 }
 
 // ── Type badge ────────────────────────────────────────────────
+const DROPDOWN_H = 280 // odhadovaná výška dropdownu px
 function TypeBadge({ value, onSave }: { value: string | null; onSave?: (v: string) => void }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const color = TYPE_COLORS[value ?? ''] ?? 'bg-gray-100 text-gray-500 border-gray-200'
+  const color = TYPE_COLORS[value ?? ''] ?? ''
 
   function open(e: React.MouseEvent) {
     e.stopPropagation()
     if (!onSave) return
     const r = btnRef.current!.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: r.left })
+    const spaceBelow = window.innerHeight - r.bottom
+    const top = spaceBelow < DROPDOWN_H ? r.top - DROPDOWN_H - 4 : r.bottom + 4
+    setPos({ top, left: r.left })
   }
 
   return (
     <div className="inline-block">
       <button ref={btnRef} onClick={open}
-        className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border whitespace-nowrap',
-          value ? color : 'text-gray-300', onSave && 'cursor-pointer hover:opacity-80')}>
-        {value || '—'}
-        {onSave && value && <ChevronDown className="h-3 w-3 opacity-40" />}
+        className={cn('inline-flex items-center gap-1 whitespace-nowrap', onSave && 'cursor-pointer')}>
+        {value
+          ? <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border', color)}>
+              {value}<ChevronDown className="h-3 w-3 opacity-40" />
+            </span>
+          : <span className="text-gray-300 text-sm px-1">—</span>
+        }
       </button>
       {pos && <>
         <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setPos(null) }} />
