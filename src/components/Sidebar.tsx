@@ -122,8 +122,8 @@ export function Sidebar({ role, userName }: SidebarProps) {
                   className={cn(
                     'block rounded-lg px-3 py-1.5 text-sm transition-colors',
                     pathname === child.href
-                      ? 'bg-accent text-primary-900 font-medium'
-                      : 'text-primary-200 hover:bg-primary-800 hover:text-white'
+                      ? 'bg-accent text-white font-medium'
+                      : 'text-primary-300 hover:bg-primary-800 hover:text-white'
                   )}
                 >
                   {child.label}
@@ -142,8 +142,8 @@ export function Sidebar({ role, userName }: SidebarProps) {
         className={cn(
           'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
           pathname === item.href || (item.href !== '/tasks' && pathname.startsWith(item.href!))
-            ? 'bg-accent text-primary-900'
-            : 'text-primary-100 hover:bg-primary-800 hover:text-white'
+            ? 'bg-accent text-white'
+            : 'text-primary-200 hover:bg-primary-800 hover:text-white'
         )}
       >
         <item.icon className="h-4 w-4 flex-shrink-0" />
