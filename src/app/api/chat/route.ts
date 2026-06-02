@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
-import { getCurrentMonth, monthBounds } from '@/lib/utils'
+import { getCurrentMonth } from '@/lib/utils'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 async function getFinancialContext(month: string) {
   const supabase = createAdminSupabaseClient()
-  const { from, to } = monthBounds(month)
 
   const [incomeRes, varRes, fixedRes, extraRes] = await Promise.all([
     supabase.from('income').select('client, project_name, amount, status').eq('month', month),
     supabase.from('variable_costs').select('team_member, client, price, hours').eq('month', month),
     supabase.from('fixed_costs').select('name, amount').eq('active', true),
-    supabase.from('extra_costs').select('description, amount').eq('month', month),
+    supabase.from('extra_costs').select('name, amount').eq('month', month),
   ])
 
   const income = incomeRes.data ?? []
@@ -75,33 +74,45 @@ PŘÍJMY dle statusu:
 `.trim()
 }
 
+async function getContextDocuments() {
+  const supabase = createAdminSupabaseClient()
+  const { data } = await supabase
+    .from('context_documents')
+    .select('name, content')
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages, month } = await req.json()
+    const { messages, month, currentPage } = await req.json()
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: 'Invalid messages' }, { status: 400 })
     }
 
     const currentMonth = month ?? getCurrentMonth()
-    const financialContext = await getFinancialContext(currentMonth)
+    const [financialContext, contextDocs] = await Promise.all([
+      getFinancialContext(currentMonth),
+      getContextDocuments(),
+    ])
 
-    const systemPrompt = `Jsi finančního asistent pro marketingovou agenturu Sportivea/Kolda. Pomáháš majiteli agentury (Janovi) sledovat finance, analyzovat data a přijímat rozhodnutí.
+    const docsBlock = contextDocs.length > 0
+      ? `\n\n## Znalostní báze (dokumenty, ceníky, historické kalkulace)\n\n${contextDocs.map(d => `### ${d.name}\n${d.content}`).join('\n\n---\n\n')}`
+      : ''
 
-Kontext o firmě:
-- Česká marketingová/video produkční agentura
-- Tým: Daniel Richtr, Filip Telenský, Jan Pachota, Michal Komárek, Ondřej Cetkovský, Ondřej Kolář, Vojtěch Kepka, Anna Švaralová, Adam Onderka
-- Klienti: Flashscore, Slavia, Fortuna liga žen, Ironman, J&T, PBH, More Buckets, drinkr, a další
+    const pageContext = currentPage ? `\nUživatel se aktuálně nachází na stránce: ${currentPage}` : ''
 
-Aktuální finanční data:
-${financialContext}
+    const systemPrompt = `Jsi AI asistent pro marketingovou agenturu Sportivea. Pomáháš majiteli (Janovi) se vším — financemi, cenotvorbou, rozhodováním, analýzou dat.${pageContext}
 
-Pravidla:
+## Aktuální finanční data (${currentMonth})
+${financialContext}${docsBlock}
+
+## Pravidla
 - Odpovídej vždy česky
-- Buď konkrétní a stručný
-- Pokud je otázka o číslech, cituj přesná data z kontextu výše
-- Pokud data chybí (žádná data pro měsíc), řekni to otevřeně
-- Dávej praktická doporučení pro malou agenturu
-- Nepoužívej žargon, mluv přirozeně`
+- Buď konkrétní a stručný, používej čísla z dat výše
+- Pokud data chybí, řekni to otevřeně
+- Formátuj odpovědi přehledně — používej seznamy, tučné písmo, oddíly
+- Dávej praktická doporučení pro malou agenturu`
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -115,8 +126,7 @@ Pravidla:
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
     return NextResponse.json({ message: text })
-  } catch (err) {
-    console.error('Chat error:', err)
+  } catch {
     return NextResponse.json({ error: 'Chyba při komunikaci s AI' }, { status: 500 })
   }
 }

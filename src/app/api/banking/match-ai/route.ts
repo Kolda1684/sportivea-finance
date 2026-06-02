@@ -64,7 +64,6 @@ Pravidla pro confidence: 90-100 = jistá shoda (VS nebo číslo faktury), 60-89 
     // Extract first JSON array
     const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
     if (!arrayMatch) {
-      console.error('AI raw response:', raw)
       throw new Error(`Claude nevrátil JSON pole. Odpověď: ${raw.slice(0, 200)}`)
     }
 
@@ -72,7 +71,6 @@ Pravidla pro confidence: 90-100 = jistá shoda (VS nebo číslo faktury), 60-89 
     try {
       suggestions = JSON.parse(arrayMatch[0])
     } catch {
-      console.error('JSON parse error, raw:', arrayMatch[0].slice(0, 500))
       throw new Error('Nepodařilo se parsovat JSON z AI odpovědi')
     }
 

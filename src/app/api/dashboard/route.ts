@@ -9,64 +9,46 @@ export async function GET(req: NextRequest) {
   const supabase = createAdminSupabaseClient()
 
   const { from, to } = monthBounds(month)
+  const months = getLastNMonths(6)
 
-  // Příjmy aktuální měsíc
-  const { data: incomeRows } = await supabase
-    .from('income')
-    .select('amount')
-    .eq('month', month)
+  // Všechny queries paralelně — 9 DB roundtripů → 1 Promise.all
+  const [
+    { data: incomeRows },
+    { data: varCostRows },
+    { data: fixedRows },
+    { data: extraRows },
+    { data: unpaidInvoices },
+    { data: invoicedRows },
+    { count: unmatchedCount },
+    { data: clientRows },
+    { data: memberRows },
+    { data: chartIncome },
+    { data: chartVar },
+    { data: chartExtra },
+  ] = await Promise.all([
+    supabase.from('income').select('amount').eq('month', month),
+    supabase.from('variable_costs').select('price').eq('month', month),
+    supabase.from('fixed_costs').select('amount').eq('active', true),
+    supabase.from('extra_costs').select('amount').eq('month', month),
+    supabase.from('invoices').select('total').not('status', 'eq', 'paid'),
+    supabase.from('invoices').select('total').gte('issued_on', from).lte('issued_on', to),
+    supabase.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unmatched'),
+    supabase.from('income').select('client, amount').eq('month', month),
+    supabase.from('variable_costs').select('team_member, price, hours').eq('month', month),
+    supabase.from('income').select('month, amount').in('month', months),
+    supabase.from('variable_costs').select('month, price').in('month', months),
+    supabase.from('extra_costs').select('month, amount').in('month', months),
+  ])
 
   const totalIncome = incomeRows?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-
-  // Variabilní náklady
-  const { data: varCostRows } = await supabase
-    .from('variable_costs')
-    .select('price')
-    .eq('month', month)
-
   const totalVarCosts = varCostRows?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0
-
-  // Fixní náklady (aktivní)
-  const { data: fixedRows } = await supabase
-    .from('fixed_costs')
-    .select('amount')
-    .eq('active', true)
-
   const totalFixedCosts = fixedRows?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-
-  // Extra náklady
-  const { data: extraRows } = await supabase
-    .from('extra_costs')
-    .select('amount')
-    .eq('month', month)
-
   const totalExtraCosts = extraRows?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-
   const totalCosts = totalVarCosts + totalFixedCosts + totalExtraCosts
-
-  // Nezaplacené faktury
-  const { data: unpaidInvoices } = await supabase
-    .from('invoices')
-    .select('total')
-    .not('status', 'eq', 'paid')
 
   const unpaidInvoicesCount = unpaidInvoices?.length ?? 0
   const unpaidInvoicesSum = unpaidInvoices?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
-
-  // Fakturováno tento měsíc
-  const { data: invoicedRows } = await supabase
-    .from('invoices')
-    .select('total')
-    .gte('issued_on', from)
-    .lte('issued_on', to)
-
   const invoicedAmount = invoicedRows?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
-
-  // Nepárované transakce
-  const { count: unmatchedCount } = await supabase
-    .from('transactions')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'unmatched')
 
   const stats: DashboardStats = {
     totalIncome,
@@ -78,26 +60,13 @@ export async function GET(req: NextRequest) {
     unmatchedTransactionsCount: unmatchedCount ?? 0,
   }
 
-  // Měsíční data pro graf (6 měsíců)
-  const months = getLastNMonths(6)
-  const monthlyData: MonthlyData[] = await Promise.all(
-    months.map(async (m) => {
-      const { data: inc } = await supabase.from('income').select('amount').eq('month', m)
-      const { data: vc } = await supabase.from('variable_costs').select('price').eq('month', m)
-      const { data: ec } = await supabase.from('extra_costs').select('amount').eq('month', m)
-      const income = inc?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-      const costs = (vc?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0)
-        + totalFixedCosts
-        + (ec?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0)
-      return { month: m, label: m, income, costs }
-    })
-  )
-
-  // Top klienti tento měsíc
-  const { data: clientRows } = await supabase
-    .from('income')
-    .select('client, amount')
-    .eq('month', month)
+  // Měsíční data pro graf — 3 queries místo 18 (6 měsíců × 3)
+  const monthlyData: MonthlyData[] = months.map((m) => {
+    const income = (chartIncome ?? []).filter(r => r.month === m).reduce((s, r) => s + (r.amount ?? 0), 0)
+    const varCosts = (chartVar ?? []).filter(r => r.month === m).reduce((s, r) => s + (r.price ?? 0), 0)
+    const extraCosts = (chartExtra ?? []).filter(r => r.month === m).reduce((s, r) => s + (r.amount ?? 0), 0)
+    return { month: m, label: m, income, costs: varCosts + totalFixedCosts + extraCosts }
+  })
 
   const clientMap = new Map<string, { total: number; count: number }>()
   for (const r of clientRows ?? []) {
@@ -108,12 +77,6 @@ export async function GET(req: NextRequest) {
     .map(([client, d]) => ({ client, ...d }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 8)
-
-  // Náklady na člena týmu
-  const { data: memberRows } = await supabase
-    .from('variable_costs')
-    .select('team_member, price, hours')
-    .eq('month', month)
 
   const memberMap = new Map<string, { total: number; hours: number }>()
   for (const r of memberRows ?? []) {

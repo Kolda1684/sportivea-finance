@@ -94,8 +94,7 @@ export async function POST(req: NextRequest) {
 
       const amountCzk = Math.abs(row.amount)
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { constant_symbol, specific_symbol, ...rowClean } = row
+      const { constant_symbol: _cs, specific_symbol: _ss, ...rowClean } = row
 
       const { error } = await supabase
         .from('bank_transactions')
