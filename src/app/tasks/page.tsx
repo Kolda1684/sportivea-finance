@@ -48,6 +48,27 @@ const TYPE_COLORS: Record<string, string> = {
   '📌 Jiné':      'bg-gray-100 text-gray-600 border-gray-200',
 }
 
+// Pastelové pozadí řádku dle měsíce (formát "M,YYYY")
+const MONTH_COLORS = [
+  'bg-rose-50/60',    // 1 leden
+  'bg-pink-50/60',    // 2 únor
+  'bg-orange-50/60',  // 3 březen
+  'bg-amber-50/60',   // 4 duben
+  'bg-lime-50/60',    // 5 květen
+  'bg-emerald-50/60', // 6 červen
+  'bg-teal-50/60',    // 7 červenec
+  'bg-cyan-50/60',    // 8 srpen
+  'bg-sky-50/60',     // 9 září
+  'bg-blue-50/60',    // 10 říjen
+  'bg-violet-50/60',  // 11 listopad
+  'bg-purple-50/60',  // 12 prosinec
+]
+function monthRowColor(month: string | null) {
+  if (!month) return ''
+  const m = parseInt(month.split(',')[0], 10)
+  return MONTH_COLORS[(m - 1) % 12] ?? ''
+}
+
 // ── Inline cell ──────────────────────────────────────────────
 function Cell({ value, type = 'text', options, placeholder = '—', onSave, className = '' }: {
   value: string | number | null; type?: 'text' | 'number' | 'date' | 'select'
@@ -638,7 +659,6 @@ export default function TasksPage() {
                 <th className={cn(TH, 'w-[95px]')}>Typ</th>
                 <th className={cn(TH, 'w-[55px] text-right')}>Hod.</th>
                 <th className={cn(TH, 'w-[55px] text-right')}>Min.</th>
-                <th className={cn(TH, 'w-[75px]')}>Měsíc</th>
                 <th className={cn(TH, 'w-[125px]')}>Status</th>
                 {isAdmin && <>
                   <th className={cn(TH, 'w-[75px] text-right')}>Jednor.</th>
@@ -649,7 +669,7 @@ export default function TasksPage() {
             </thead>
             <tbody>
               {filtered.map((task, i) => (
-                <tr key={task.id} className="group hover:bg-blue-50/20 transition-colors cursor-pointer" onClick={() => setPanel(task)}>
+                <tr key={task.id} className={cn('group hover:brightness-95 transition-colors cursor-pointer', monthRowColor(task.month))} onClick={() => setPanel(task)}>
                   <td className="border border-gray-200 px-2 py-0 text-xs text-gray-300 text-center select-none bg-gray-50/40">{i + 1}</td>
                   <td className={TD} onClick={e => e.stopPropagation()}>
                     <div className="flex items-center">
@@ -674,7 +694,6 @@ export default function TasksPage() {
                   <td className={TD} onClick={e => e.stopPropagation()}>
                     <Cell value={task.minutes || null} type="number" onSave={v => updateField(task.id, 'minutes', v ? Number(v) : 0)} placeholder="0" className="text-right text-gray-700" />
                   </td>
-                  <td className="border border-gray-200 px-2 py-1 text-xs text-gray-400">{task.month ?? '—'}</td>
                   <td className="border border-gray-200 px-2 py-1" onClick={e => e.stopPropagation()}>
                     <StatusBadge value={task.status} onSave={v => updateField(task.id, 'status', v)} />
                   </td>
