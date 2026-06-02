@@ -689,10 +689,7 @@ export default function TasksPage() {
                 <th className={cn(TH, 'w-[55px] text-right')}>Hod.</th>
                 <th className={cn(TH, 'w-[55px] text-right')}>Min.</th>
                 <th className={cn(TH, 'w-[140px]')}>Status</th>
-                {isAdmin && <>
-                  <th className={cn(TH, 'w-[75px] text-right')}>Jednor.</th>
-                  <th className={cn(TH, 'w-[80px] text-right')}>Odměna</th>
-                </>}
+                {isAdmin && <th className={cn(TH, 'w-[90px] text-right')}>Odměna</th>}
                 <th className={cn(TH, 'w-8')} />
               </tr>
             </thead>
@@ -726,14 +723,11 @@ export default function TasksPage() {
                   <td className="border border-gray-200 px-2 py-1" onClick={e => e.stopPropagation()}>
                     <StatusBadge value={task.status} onSave={v => updateField(task.id, 'status', v)} />
                   </td>
-                  {isAdmin && <>
-                    <td className={TD} onClick={e => e.stopPropagation()}>
-                      <Cell value={task.one_time_reward || null} type="number" onSave={v => updateField(task.id, 'one_time_reward', v ? Number(v) : null)} placeholder="0" className="text-right text-gray-700" />
+                  {isAdmin && (
+                    <td className="border border-gray-200 px-3 py-1 text-right text-sm font-semibold text-gray-900">
+                      {((task.reward ?? 0) + (task.one_time_reward ?? 0)).toLocaleString('cs-CZ')}
                     </td>
-                    <td className={TD} onClick={e => e.stopPropagation()}>
-                      <Cell value={task.reward || null} type="number" onSave={v => updateField(task.id, 'reward', v ? Number(v) : null)} placeholder="0" className="text-right font-semibold text-gray-900" />
-                    </td>
-                  </>}
+                  )}
                   <td className="border border-gray-200 px-1 py-0 text-center" onClick={e => e.stopPropagation()}>
                     {isAdmin && (
                       <button onClick={async () => {
@@ -779,11 +773,9 @@ export default function TasksPage() {
                     {totalHours.toFixed(1)} h
                   </td>
                   <td className="border border-gray-200" /><td className="border border-gray-200" />
-                  {isAdmin && <>
-                    <td className="border border-gray-200" />
+                  {isAdmin && (
                     <td className="border border-gray-200 px-2 py-2 text-xs text-right font-bold text-gray-800">{totalReward.toLocaleString('cs-CZ')} Kč</td>
-                    <td className="border border-gray-200" />
-                  </>}
+                  )}
                   <td className="border border-gray-200" />
                 </tr>
               </tfoot>
