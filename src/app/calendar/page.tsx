@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronRight, Plus, X, Loader2, MapPin, Calendar, Users, FileText, Tag } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, Loader2, Link, ExternalLink, Trash2 } from 'lucide-react'
 import type { CalendarEvent, CalendarEventStatus, CalendarEventType } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -87,6 +87,8 @@ export default function CalendarPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [saving, setSaving] = useState(false)
   const [me, setMe] = useState<{ id: string } | null>(null)
+  const [editNotes, setEditNotes] = useState('')
+  const [editDocUrl, setEditDocUrl] = useState('')
 
   const [form, setForm] = useState<NewEventForm>({
     title: '', start_date: '', end_date: '', client: '',
@@ -117,6 +119,24 @@ export default function CalendarPage() {
       setMe(data.me ?? null)
     })
   }, [])
+
+  // Sync editovatelná pole při otevření detailu
+  useEffect(() => {
+    if (panel && panel !== 'new') {
+      const e = panel as CalendarEvent
+      setEditNotes(e.description ?? '')
+      setEditDocUrl(e.document_url ?? '')
+    }
+  }, [panel])
+
+  async function patchField(id: string, patch: Record<string, unknown>) {
+    await fetch(`/api/calendar/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    fetchEvents()
+  }
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -485,72 +505,137 @@ export default function CalendarPage() {
             </form>
           )}
 
-          {/* === Event detail === */}
+          {/* === Event detail — Notion style === */}
           {selectedEvent && (
-            <div className="p-6">
-              {/* Type badge */}
-              <div className="mb-5">
-                <span className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border',
-                  EVENT_TYPE_COLORS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]
-                )}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', EVENT_TYPE_DOT[(selectedEvent.event_type ?? 'jine') as CalendarEventType])} />
-                  {EVENT_TYPE_LABELS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]}
-                </span>
-                <span className={cn(
-                  'ml-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border',
-                  STATUS_COLORS[selectedEvent.status as CalendarEventStatus] ?? 'bg-gray-100 text-gray-600 border-gray-200'
-                )}>
-                  {STATUS_LABELS[selectedEvent.status as CalendarEventStatus] ?? selectedEvent.status}
-                </span>
+            <div className="flex flex-col h-full">
+              {/* Typ emoji + nadpis */}
+              <div className="px-8 pt-8 pb-4 flex-shrink-0">
+                <div className="text-4xl mb-3">
+                  {selectedEvent.event_type === 'nataceni' ? '🎬' : selectedEvent.event_type === 'dovolena' ? '🏖️' : selectedEvent.event_type === 'workshop' ? '🎓' : '📌'}
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 leading-tight">{selectedEvent.title}</h2>
               </div>
 
-              {/* Props */}
-              <div className="divide-y divide-gray-100">
-                <PropRow icon={<Calendar className="h-3.5 w-3.5" />} label="Datum">
-                  {new Date(selectedEvent.start_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.start_date && (
-                    <> – {new Date(selectedEvent.end_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}</>
-                  )}
-                </PropRow>
-
-                {selectedEvent.client && (
-                  <PropRow icon={<Tag className="h-3.5 w-3.5" />} label="Klient">
-                    {selectedEvent.client}
-                  </PropRow>
-                )}
-
-                {selectedEvent.location && (
-                  <PropRow icon={<MapPin className="h-3.5 w-3.5" />} label="Lokace">
-                    {selectedEvent.location}
-                  </PropRow>
-                )}
-
+              {/* Properties */}
+              <div className="px-8 pb-2 flex-shrink-0 space-y-0">
+                {/* Person */}
                 {selectedEvent.assignees && selectedEvent.assignees.length > 0 && (
-                  <PropRow icon={<Users className="h-3.5 w-3.5" />} label="Tým">
+                  <div className="flex items-start py-2 border-b border-gray-100">
+                    <span className="w-32 text-xs text-gray-500 pt-0.5 flex-shrink-0">👤 Person</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {(selectedEvent.assignees as unknown as { profile: { name: string } }[]).map((a, i) => (
+                      {(selectedEvent.assignees as unknown as { profile: { name: string } | null }[]).map((a, i) => (
                         <span key={i} className="bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
                           {a.profile?.name || '?'}
                         </span>
                       ))}
                     </div>
-                  </PropRow>
+                  </div>
                 )}
 
-                {selectedEvent.description && (
-                  <PropRow icon={<FileText className="h-3.5 w-3.5" />} label="Poznámka">
-                    <p className="text-gray-700 whitespace-pre-wrap">{selectedEvent.description}</p>
-                  </PropRow>
+                {/* Stav */}
+                <div className="flex items-center py-2 border-b border-gray-100">
+                  <span className="w-32 text-xs text-gray-500 flex-shrink-0">📋 Stav</span>
+                  <span className={cn(
+                    'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border',
+                    STATUS_COLORS[selectedEvent.status as CalendarEventStatus] ?? 'bg-gray-100 text-gray-600 border-gray-200'
+                  )}>
+                    {STATUS_LABELS[selectedEvent.status as CalendarEventStatus] ?? selectedEvent.status}
+                  </span>
+                </div>
+
+                {/* Datum */}
+                <div className="flex items-center py-2 border-b border-gray-100">
+                  <span className="w-32 text-xs text-gray-500 flex-shrink-0">📅 Datum</span>
+                  <span className="text-sm text-gray-800">
+                    {new Date(selectedEvent.start_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.start_date && (
+                      <> – {new Date(selectedEvent.end_date + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' })}</>
+                    )}
+                  </span>
+                </div>
+
+                {/* Klient */}
+                {selectedEvent.client && (
+                  <div className="flex items-center py-2 border-b border-gray-100">
+                    <span className="w-32 text-xs text-gray-500 flex-shrink-0">🏢 Klient</span>
+                    <span className="text-sm text-gray-800">{selectedEvent.client}</span>
+                  </div>
                 )}
+
+                {/* Typ */}
+                <div className="flex items-center py-2 border-b border-gray-100">
+                  <span className="w-32 text-xs text-gray-500 flex-shrink-0">🎭 Typ</span>
+                  <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border', EVENT_TYPE_COLORS[(selectedEvent.event_type ?? 'jine') as CalendarEventType])}>
+                    {EVENT_TYPE_LABELS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]}
+                  </span>
+                </div>
+
+                {/* Lokace */}
+                {selectedEvent.location && (
+                  <div className="flex items-center py-2 border-b border-gray-100">
+                    <span className="w-32 text-xs text-gray-500 flex-shrink-0">📍 Lokace</span>
+                    <span className="text-sm text-gray-800">{selectedEvent.location}</span>
+                  </div>
+                )}
+
+                {/* Dokument */}
+                <div className="flex items-center py-2 border-b border-gray-100">
+                  <span className="w-32 text-xs text-gray-500 flex-shrink-0">🔗 Dokument</span>
+                  <div className="flex-1 flex items-center gap-2">
+                    {editDocUrl ? (
+                      <a href={editDocUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline truncate max-w-[160px] flex items-center gap-1">
+                        <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                        {editDocUrl.replace(/^https?:\/\//, '').slice(0, 30)}…
+                      </a>
+                    ) : (
+                      <span className="text-xs text-gray-400">Přidat odkaz…</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Editovatelné pole — Dokument URL */}
+              <div className="px-8 pt-2 pb-1 flex-shrink-0">
+                <div className="flex items-center gap-2 border rounded-lg px-3 py-1.5 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white">
+                  <Link className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                  <input
+                    type="url"
+                    placeholder="Vložit odkaz na dokument (Google Drive, Notion…)"
+                    value={editDocUrl}
+                    onChange={e => setEditDocUrl(e.target.value)}
+                    onBlur={() => patchField(selectedEvent.id, { document_url: editDocUrl || null })}
+                    className="flex-1 bg-transparent text-sm outline-none text-gray-700 placeholder:text-gray-400"
+                  />
+                  {editDocUrl && (
+                    <button onClick={() => { setEditDocUrl(''); patchField(selectedEvent.id, { document_url: null }) }}
+                      className="text-gray-400 hover:text-gray-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Poznámky — editovatelné */}
+              <div className="px-8 pt-3 pb-4 flex-1 flex flex-col">
+                <p className="text-xs font-medium text-gray-500 mb-2">📝 Poznámky</p>
+                <textarea
+                  value={editNotes}
+                  onChange={e => setEditNotes(e.target.value)}
+                  onBlur={() => patchField(selectedEvent.id, { description: editNotes || null })}
+                  placeholder="Napiš poznámky k eventu…"
+                  className="flex-1 w-full text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none border rounded-lg p-3 focus:ring-2 focus:ring-blue-500 min-h-[120px]"
+                />
+                <p className="text-xs text-gray-400 mt-1">Uloží se automaticky po kliknutí jinam</p>
               </div>
 
               {/* Delete */}
-              <div className="mt-6 pt-4 border-t">
+              <div className="px-8 py-4 border-t flex-shrink-0">
                 <button
                   onClick={() => handleDelete(selectedEvent.id)}
-                  className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                  className="flex items-center gap-2 text-xs text-red-500 hover:text-red-700 transition-colors"
                 >
+                  <Trash2 className="h-3.5 w-3.5" />
                   Smazat event
                 </button>
               </div>

@@ -212,6 +212,7 @@ export interface CalendarEvent {
   event_type: CalendarEventType
   location: string | null
   description: string | null
+  document_url: string | null
   created_by: string | null
   created_at: string
   // Joined

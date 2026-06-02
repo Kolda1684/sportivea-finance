@@ -24,6 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       event_type: body.event_type ?? 'jine',
       location: body.location ?? null,
       description: body.description ?? null,
+      document_url: body.document_url ?? null,
     })
     .eq('id', params.id)
     .select()
