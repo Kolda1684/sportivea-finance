@@ -27,9 +27,21 @@ const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
 }
 
 const STATUS_LABELS: Record<CalendarEventStatus, string> = {
+  neni_potvrzeno: 'NENÍ VŮBEC POTVRZENO',
+  ceka_potvrzeni: '⏳ ČEKÁ SE NA POTVRZENÍ',
+  potvrzeno_lidi: '✅ POTVRZENO LIDI',
+  potvrzeno: '📅 POTVRZENO',
   planovano: 'Plánováno',
-  potvrzeno: 'Potvrzeno',
   zruseno: 'Zrušeno',
+}
+
+const STATUS_COLORS: Record<CalendarEventStatus, string> = {
+  neni_potvrzeno: 'bg-gray-100 text-gray-600 border-gray-200',
+  ceka_potvrzeni: 'bg-purple-100 text-purple-700 border-purple-200',
+  potvrzeno_lidi: 'bg-green-100 text-green-700 border-green-200',
+  potvrzeno: 'bg-orange-100 text-orange-700 border-orange-200',
+  planovano: 'bg-gray-100 text-gray-600 border-gray-200',
+  zruseno: 'bg-red-100 text-red-600 border-red-200',
 }
 
 const MONTHS_CS = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen',
@@ -78,7 +90,7 @@ export default function CalendarPage() {
 
   const [form, setForm] = useState<NewEventForm>({
     title: '', start_date: '', end_date: '', client: '',
-    event_type: 'nataceni', status: 'planovano', location: '', description: '', assignee_ids: [],
+    event_type: 'nataceni', status: 'neni_potvrzeno', location: '', description: '', assignee_ids: [],
   })
 
   const fetchEvents = useCallback(async () => {
@@ -139,7 +151,7 @@ export default function CalendarPage() {
       : ''
     setForm({
       title: '', start_date: dateStr, end_date: '', client: '',
-      event_type: 'nataceni', status: 'planovano', location: '', description: '',
+      event_type: 'nataceni', status: 'neni_potvrzeno', location: '', description: '',
       assignee_ids: me ? [me.id] : [],
     })
     setPanel('new')
@@ -273,16 +285,20 @@ export default function CalendarPage() {
                         <div className="space-y-0.5">
                           {dayEvents.map(event => {
                             const type = (event.event_type ?? 'jine') as CalendarEventType
+                            const assigneeNames = (event.assignees as unknown as { profile: { name: string } | null }[] | undefined)
+                              ?.map(a => a.profile?.name?.split(' ')[0]).filter(Boolean).join(', ')
                             return (
                               <button
                                 key={event.id}
                                 onClick={e => { e.stopPropagation(); setPanel(event) }}
                                 className={cn(
-                                  'w-full text-left rounded px-1.5 py-0.5 text-xs font-medium border truncate',
+                                  'w-full text-left rounded px-1.5 py-1 text-xs border',
                                   EVENT_TYPE_COLORS[type]
                                 )}
                               >
-                                {event.title}
+                                <div className="font-medium truncate">{event.title}</div>
+                                {event.client && <div className="truncate opacity-70">{event.client}</div>}
+                                {assigneeNames && <div className="truncate opacity-60">{assigneeNames}</div>}
                               </button>
                             )
                           })}
@@ -333,6 +349,28 @@ export default function CalendarPage() {
                       )}
                     >
                       {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-2 block">Status</label>
+                <div className="flex flex-wrap gap-2">
+                  {(['neni_potvrzeno', 'ceka_potvrzeni', 'potvrzeno_lidi', 'potvrzeno'] as CalendarEventStatus[]).map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, status: s }))}
+                      className={cn(
+                        'rounded-full px-3 py-1 text-xs font-medium border transition-colors',
+                        form.status === s
+                          ? STATUS_COLORS[s] + ' ring-1 ring-offset-1 ring-current'
+                          : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                      )}
+                    >
+                      {STATUS_LABELS[s]}
                     </button>
                   ))}
                 </div>
@@ -456,8 +494,11 @@ export default function CalendarPage() {
                   <span className={cn('h-1.5 w-1.5 rounded-full', EVENT_TYPE_DOT[(selectedEvent.event_type ?? 'jine') as CalendarEventType])} />
                   {EVENT_TYPE_LABELS[(selectedEvent.event_type ?? 'jine') as CalendarEventType]}
                 </span>
-                <span className="ml-2 text-xs text-gray-400">
-                  {STATUS_LABELS[selectedEvent.status as CalendarEventStatus]}
+                <span className={cn(
+                  'ml-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border',
+                  STATUS_COLORS[selectedEvent.status as CalendarEventStatus] ?? 'bg-gray-100 text-gray-600 border-gray-200'
+                )}>
+                  {STATUS_LABELS[selectedEvent.status as CalendarEventStatus] ?? selectedEvent.status}
                 </span>
               </div>
 

@@ -198,7 +198,7 @@ export interface TaskAttachment {
   created_at: string
 }
 
-export type CalendarEventStatus = 'planovano' | 'potvrzeno' | 'zruseno'
+export type CalendarEventStatus = 'neni_potvrzeno' | 'ceka_potvrzeni' | 'potvrzeno_lidi' | 'potvrzeno' | 'planovano' | 'zruseno'
 export type CalendarEventType = 'nataceni' | 'dovolena' | 'workshop' | 'jine'
 
 export interface CalendarEvent {
