@@ -111,7 +111,7 @@ function StatusBadge({ value, onSave }: { value: TaskStatus; onSave?: (v: TaskSt
   const cfg = STATUS_CONFIG[value]
   return (
     <div className="relative inline-block">
-      <button onClick={() => onSave && setOpen(o => !o)} className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium', cfg.bg, onSave && 'hover:opacity-80 cursor-pointer')}>
+      <button onClick={() => onSave && setOpen(o => !o)} className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap', cfg.bg, onSave && 'hover:opacity-80 cursor-pointer')}>
         <span className={cn('h-2 w-2 rounded-full flex-shrink-0', cfg.dot)} />{cfg.label}
         {onSave && <ChevronDown className="h-3.5 w-3.5 opacity-40" />}
       </button>
@@ -659,7 +659,7 @@ export default function TasksPage() {
                 <th className={cn(TH, 'w-[95px]')}>Typ</th>
                 <th className={cn(TH, 'w-[55px] text-right')}>Hod.</th>
                 <th className={cn(TH, 'w-[55px] text-right')}>Min.</th>
-                <th className={cn(TH, 'w-[125px]')}>Status</th>
+                <th className={cn(TH, 'w-[140px]')}>Status</th>
                 {isAdmin && <>
                   <th className={cn(TH, 'w-[75px] text-right')}>Jednor.</th>
                   <th className={cn(TH, 'w-[80px] text-right')}>Odměna</th>
