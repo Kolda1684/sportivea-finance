@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
-import { AiChat } from '@/components/chat/AiChat'
+import { AiChatLauncher } from '@/components/chat/AiChatLauncher'
 import { getCurrentUserProfile } from '@/lib/auth-helpers'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -26,7 +26,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </main>
         </div>
-        {role === 'admin' && <AiChat />}
+        {role === 'admin' && <AiChatLauncher />}
       </body>
     </html>
   )

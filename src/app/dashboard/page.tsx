@@ -1,5 +1,5 @@
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
-import { getCurrentMonth, formatCZK, formatMonth, getLastNMonths, monthBounds } from '@/lib/utils'
+import { getCurrentMonth, formatCZK, formatMonth } from '@/lib/utils'
 import { KpiCard } from '@/components/dashboard/KpiCard'
 import { RevenueChart } from '@/components/dashboard/RevenueChart'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
@@ -8,107 +8,58 @@ import { TrendingUp, TrendingDown, Wallet, FileText, AlertTriangle, Calendar } f
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { MonthlyData } from '@/types'
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Types from RPC ──────────────────────────────────────────────────────────
 
-function getYtdMonths(month: string): string[] {
-  const [m, y] = month.split(',').map(Number)
-  return Array.from({ length: m }, (_, i) => `${i + 1},${y}`)
-}
-
-async function getMonthTotals(supabase: ReturnType<typeof createAdminSupabaseClient>, month: string) {
-  const [incRes, varRes, extRes] = await Promise.all([
-    supabase.from('income').select('amount').eq('month', month),
-    supabase.from('variable_costs').select('price').eq('month', month),
-    supabase.from('extra_costs').select('amount').eq('month', month),
-  ])
-  return {
-    income: incRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0,
-    variable: varRes.data?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0,
-    extra: extRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0,
-  }
+interface DashboardSummary {
+  totalIncome: number
+  totalVar: number
+  totalExtra: number
+  totalFixed: number
+  invoicedAmount: number
+  unpaidSum: number
+  unpaidCount: number
+  varByClient: { client: string; count: number; hours: number; price: number }[]
+  varByMember: { member: string; count: number; hours: number; price: number }[]
+  topClients:  { client: string; total: number; count: number }[]
+  monthlyData: { month: string; income: number; costs: number }[]
+  ytd: { income: number; costs: number; months: number }
 }
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
 async function getDashboardData(month: string) {
   const supabase = createAdminSupabaseClient()
-  const { from, to } = monthBounds(month)
 
-  // Primární paralelní fetch — vše co potřebujeme pro oba pohledy
-  const [incomeRes, varCostRes, fixedRes, extraRes, unpaidRes, invoicedRes] = await Promise.all([
-    supabase.from('income').select('client, amount').eq('month', month),
-    supabase.from('variable_costs').select('client, team_member, price, hours').eq('month', month),
-    supabase.from('fixed_costs').select('amount').eq('active', true),
-    supabase.from('extra_costs').select('amount').eq('month', month),
-    supabase.from('invoices').select('total').not('status', 'eq', 'paid'),
-    supabase.from('invoices').select('total').gte('issued_on', from).lte('issued_on', to),
-  ])
+  const { data, error } = await supabase.rpc('dashboard_summary', { p_month: month })
+  if (error) throw new Error(`dashboard_summary RPC failed: ${error.message}`)
 
-  const totalIncome = incomeRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-  const totalFixed  = fixedRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-  const totalVar    = varCostRes.data?.reduce((s, r) => s + (r.price ?? 0), 0) ?? 0
-  const totalExtra  = extraRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
-  const totalCosts  = totalVar + totalFixed + totalExtra
+  const d = data as DashboardSummary
+  const totalCosts = d.totalVar + d.totalFixed + d.totalExtra
 
-  // Pivot variabilních nákladů dle klienta
-  const clientMap = new Map<string, { count: number; hours: number; price: number }>()
-  for (const r of varCostRes.data ?? []) {
-    const key = r.client ?? 'Neznámý'
-    const e = clientMap.get(key) ?? { count: 0, hours: 0, price: 0 }
-    clientMap.set(key, { count: e.count + 1, hours: e.hours + (r.hours ?? 0), price: e.price + (r.price ?? 0) })
-  }
-  const varByClient = Array.from(clientMap.entries())
-    .map(([client, d]) => ({ client, ...d }))
-    .sort((a, b) => b.price - a.price)
-
-  // Pivot variabilních nákladů dle zaměstnance
-  const memberMap = new Map<string, { count: number; hours: number; price: number }>()
-  for (const r of varCostRes.data ?? []) {
-    const key = r.team_member ?? 'Neznámý'
-    const e = memberMap.get(key) ?? { count: 0, hours: 0, price: 0 }
-    memberMap.set(key, { count: e.count + 1, hours: e.hours + (r.hours ?? 0), price: e.price + (r.price ?? 0) })
-  }
-  const varByMember = Array.from(memberMap.entries())
-    .map(([member, d]) => ({ member, ...d }))
-    .sort((a, b) => b.price - a.price)
-
-  // Top klienti dle příjmů
-  const incClientMap = new Map<string, { total: number; count: number }>()
-  for (const r of incomeRes.data ?? []) {
-    const e = incClientMap.get(r.client) ?? { total: 0, count: 0 }
-    incClientMap.set(r.client, { total: e.total + (r.amount ?? 0), count: e.count + 1 })
-  }
-  const topClients = Array.from(incClientMap.entries())
-    .map(([client, d]) => ({ client, ...d }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 6)
-
-  // Měsíční data pro graf (posledních 6 měsíců)
-  const last6 = getLastNMonths(6)
-  const monthlyData: MonthlyData[] = await Promise.all(
-    last6.map(async (m) => {
-      const t = await getMonthTotals(supabase, m)
-      return { month: m, label: m, income: t.income, costs: t.variable + totalFixed + t.extra }
-    })
-  )
-
-  // YTD
-  const ytdMonths = getYtdMonths(month)
-  const ytdTotals = await Promise.all(ytdMonths.map(m => getMonthTotals(supabase, m)))
-  const ytdIncome = ytdTotals.reduce((s, t) => s + t.income, 0)
-  const ytdCosts  = ytdTotals.reduce((s, t) => s + t.variable + t.extra, 0) + totalFixed * ytdMonths.length
+  const monthlyData: MonthlyData[] = d.monthlyData.map(r => ({
+    month: r.month, label: r.month, income: r.income, costs: r.costs,
+  }))
 
   return {
-    month, totalIncome, totalCosts, totalFixed, totalVar, totalExtra,
-    profit: totalIncome - totalCosts,
-    invoicedAmount: invoicedRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0,
-    unpaidCount: unpaidRes.data?.length ?? 0,
-    unpaidSum: unpaidRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0,
-    varByClient, varByMember, topClients, monthlyData,
+    month,
+    totalIncome:    d.totalIncome,
+    totalCosts,
+    totalFixed:     d.totalFixed,
+    totalVar:       d.totalVar,
+    totalExtra:     d.totalExtra,
+    profit:         d.totalIncome - totalCosts,
+    invoicedAmount: d.invoicedAmount,
+    unpaidCount:    d.unpaidCount,
+    unpaidSum:      d.unpaidSum,
+    varByClient:    d.varByClient,
+    varByMember:    d.varByMember,
+    topClients:     d.topClients,
+    monthlyData,
     ytd: {
-      income: ytdIncome, costs: ytdCosts,
-      profit: ytdIncome - ytdCosts,
-      months: ytdMonths.length,
+      income: d.ytd.income,
+      costs:  d.ytd.costs,
+      profit: d.ytd.income - d.ytd.costs,
+      months: d.ytd.months,
     },
   }
 }

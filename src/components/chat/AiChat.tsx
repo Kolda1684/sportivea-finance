@@ -10,8 +10,8 @@ interface Message {
   content: string
 }
 
-export function AiChat() {
-  const [open, setOpen] = useState(false)
+export function AiChat({ initialOpen = false }: { initialOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(initialOpen)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)

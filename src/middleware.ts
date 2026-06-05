@@ -1,5 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  ROLE_COOKIE_NAME,
+  ROLE_COOKIE_TTL_SECONDS,
+  signRoleCookie,
+  verifyRoleCookie,
+} from '@/lib/role-cache'
 
 const PUBLIC_ROUTES = ['/login']
 const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/logout']
@@ -127,14 +133,27 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Načti roli (potřeba pro root redirect i pro admin-only routes)
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  const role = profile?.role ?? 'editor'
+  // Role: nejprve zkus podepsanou cache cookie (HMAC, TTL 60 s) — ušetří DB query.
+  // Při miss/expire dotaz a refresh cookie.
+  const cachedRole = await verifyRoleCookie(request.cookies.get(ROLE_COOKIE_NAME)?.value, user.id)
+  let role: string
+  if (cachedRole) {
+    role = cachedRole
+  } else {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    role = profile?.role ?? 'editor'
+    response.cookies.set(ROLE_COOKIE_NAME, await signRoleCookie(user.id, role), {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: ROLE_COOKIE_TTL_SECONDS,
+      path: '/',
+    })
+  }
 
   // Root přesměrování — admin jde na dashboard, editor na tasky
   if (pathname === '/') {
