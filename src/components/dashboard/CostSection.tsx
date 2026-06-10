@@ -9,19 +9,23 @@ function fmtH(h: number) { return h > 0 ? Math.round(h * 10) / 10 + ' h' : '—'
 
 interface VarRow { client?: string; member?: string; count: number; hours: number; price: number }
 
+interface SalaryRow { owner: string; amount: number; paid: boolean }
+
 interface Props {
   month: string
   totalIncome: number
   totalVar: number
   totalFixed: number
+  totalSalaries: number
   initialExtra: number
   varByClient: VarRow[]
   varByMember: VarRow[]
+  salariesByOwner: SalaryRow[]
 }
 
-export function CostSection({ month, totalIncome, totalVar, totalFixed, initialExtra, varByClient, varByMember }: Props) {
+export function CostSection({ month, totalIncome, totalVar, totalFixed, totalSalaries, initialExtra, varByClient, varByMember, salariesByOwner }: Props) {
   const [extraTotal, setExtraTotal] = useState(initialExtra)
-  const totalCosts = totalVar + extraTotal + totalFixed
+  const totalCosts = totalVar + extraTotal + totalFixed + totalSalaries
   const profit = totalIncome - totalCosts
   const margin = totalIncome > 0 ? Math.round((profit / totalIncome) * 100) : 0
   const isProfit = profit >= 0
@@ -43,7 +47,7 @@ export function CostSection({ month, totalIncome, totalVar, totalFixed, initialE
           <div className="px-6 py-5">
             <div className="text-xs font-medium text-gray-500 mb-1">Náklady celkem</div>
             <div className="text-2xl font-bold text-red-600">{formatCZK(totalCosts)}</div>
-            <div className="text-xs text-gray-400 mt-1">var + extra + fixní</div>
+            <div className="text-xs text-gray-400 mt-1">var + extra + fixní + platy</div>
           </div>
           <div className="px-6 py-5">
             <div className="text-xs font-medium text-gray-500 mb-1">Marže</div>
@@ -163,22 +167,72 @@ export function CostSection({ month, totalIncome, totalVar, totalFixed, initialE
       {/* Extra náklady (editovatelné) */}
       <ExtraTable month={month} onTotalsChange={setExtraTotal} />
 
+      {/* Platy majitelů */}
+      {(salariesByOwner.length > 0 || totalSalaries > 0) && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 bg-gray-900 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white">Platy majitelů</h2>
+            <span className="text-sm font-semibold text-gray-300">{formatCZK(totalSalaries)}</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-5 py-2.5 font-medium text-gray-500">Majitel</th>
+                <th className="text-center px-3 py-2.5 font-medium text-gray-500 w-32">Status</th>
+                <th className="text-right px-5 py-2.5 font-medium text-gray-500 w-40">Částka</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {salariesByOwner.length === 0 ? (
+                <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">Pro tento měsíc nejsou nastaveny platy</td></tr>
+              ) : salariesByOwner.map((s, i) => (
+                <tr key={s.owner} className={cn('hover:bg-blue-50/30', i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40')}>
+                  <td className="px-5 py-2.5 font-medium text-gray-800">{s.owner}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={cn(
+                      'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                      s.paid ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                    )}>
+                      {s.paid ? 'Vyplaceno' : 'Pending'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-2.5 text-right font-semibold text-gray-900">{formatCZK(s.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            {salariesByOwner.length > 0 && (
+              <tfoot className="border-t-2 border-gray-300 bg-gray-100">
+                <tr>
+                  <td className="px-5 py-3 font-bold text-gray-900 text-xs uppercase">Celkem</td>
+                  <td className="px-3 py-3" />
+                  <td className="px-5 py-3 text-right font-bold text-gray-900">{formatCZK(totalSalaries)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
       {/* Souhrn nákladů */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <div className="text-xs font-medium text-gray-500 mb-1">Variabilní náklady</div>
+          <div className="text-xs font-medium text-gray-500 mb-1">Variabilní</div>
           <div className="text-xl font-bold text-gray-900">{formatCZK(totalVar)}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <div className="text-xs font-medium text-gray-500 mb-1">Extra náklady</div>
+          <div className="text-xs font-medium text-gray-500 mb-1">Extra</div>
           <div className="text-xl font-bold text-gray-900">{formatCZK(extraTotal)}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <div className="text-xs font-medium text-gray-500 mb-1">Fixní náklady</div>
+          <div className="text-xs font-medium text-gray-500 mb-1">Fixní</div>
           <div className="text-xl font-bold text-gray-900">{formatCZK(totalFixed)}</div>
         </div>
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+          <div className="text-xs font-medium text-gray-500 mb-1">Platy majitelů</div>
+          <div className="text-xl font-bold text-gray-900">{formatCZK(totalSalaries)}</div>
+        </div>
         <div className="bg-red-50 rounded-xl border border-red-200 px-5 py-4">
-          <div className="text-xs font-medium text-red-600 mb-1">Náklady celkem</div>
+          <div className="text-xs font-medium text-red-600 mb-1">Celkem</div>
           <div className="text-xl font-bold text-red-700">{formatCZK(totalCosts)}</div>
         </div>
       </div>

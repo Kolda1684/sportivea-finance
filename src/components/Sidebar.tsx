@@ -41,6 +41,7 @@ const adminNavItems = [
       { href: '/costs/variable', label: 'Variabilní' },
       { href: '/costs/fixed', label: 'Fixní' },
       { href: '/costs/extra', label: 'Extra' },
+      { href: '/costs/salaries', label: 'Platy majitelů' },
     ],
   },
   {
