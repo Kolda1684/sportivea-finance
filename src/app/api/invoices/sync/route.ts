@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
-import { mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
+import { mapFakturoidInvoiceToDb, FakturoidInvoice } from '@/lib/fakturoid'
 
 const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
 const TOKEN_URL = 'https://app.fakturoid.cz/api/v3/oauth/token'
@@ -65,7 +65,7 @@ export async function POST() {
   const syncStartedAt = new Date().toISOString()
 
   // Stáhni faktury — inkrementálně (updated_since) nebo celé (max 5 stránek)
-  const allInvoices: Record<string, unknown>[] = []
+  const allInvoices: FakturoidInvoice[] = []
   const maxPages = isIncremental ? 10 : 5
   const updatedSinceParam = isIncremental
     ? `&updated_since=${encodeURIComponent(lastSyncedAt!)}`
@@ -108,8 +108,7 @@ export async function POST() {
     })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = allInvoices.map((inv) => mapFakturoidInvoiceToDb(inv as any))
+  const rows = allInvoices.map((inv) => mapFakturoidInvoiceToDb(inv))
 
   const { error: dbError } = await supabase
     .from('invoices')
