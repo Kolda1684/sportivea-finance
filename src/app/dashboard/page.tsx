@@ -15,11 +15,13 @@ interface DashboardSummary {
   totalVar: number
   totalExtra: number
   totalFixed: number
+  totalSalaries: number
   invoicedAmount: number
   unpaidSum: number
   unpaidCount: number
   varByClient: { client: string; count: number; hours: number; price: number }[]
   varByMember: { member: string; count: number; hours: number; price: number }[]
+  salariesByOwner: { owner: string; amount: number; paid: boolean }[]
   topClients:  { client: string; total: number; count: number }[]
   monthlyData: { month: string; income: number; costs: number }[]
   ytd: { income: number; costs: number; months: number }
@@ -34,7 +36,8 @@ async function getDashboardData(month: string) {
   if (error) throw new Error(`dashboard_summary RPC failed: ${error.message}`)
 
   const d = data as DashboardSummary
-  const totalCosts = d.totalVar + d.totalFixed + d.totalExtra
+  const totalSalaries = d.totalSalaries ?? 0
+  const totalCosts = d.totalVar + d.totalFixed + d.totalExtra + totalSalaries
 
   const monthlyData: MonthlyData[] = d.monthlyData.map(r => ({
     month: r.month, label: r.month, income: r.income, costs: r.costs,
@@ -47,12 +50,14 @@ async function getDashboardData(month: string) {
     totalFixed:     d.totalFixed,
     totalVar:       d.totalVar,
     totalExtra:     d.totalExtra,
+    totalSalaries,
     profit:         d.totalIncome - totalCosts,
     invoicedAmount: d.invoicedAmount,
     unpaidCount:    d.unpaidCount,
     unpaidSum:      d.unpaidSum,
     varByClient:    d.varByClient,
     varByMember:    d.varByMember,
+    salariesByOwner: d.salariesByOwner ?? [],
     topClients:     d.topClients,
     monthlyData,
     ytd: {
@@ -113,9 +118,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
         totalIncome={d.totalIncome}
         totalVar={d.totalVar}
         totalFixed={d.totalFixed}
+        totalSalaries={d.totalSalaries}
         initialExtra={d.totalExtra}
         varByClient={d.varByClient}
         varByMember={d.varByMember}
+        salariesByOwner={d.salariesByOwner}
       />
 
       {/* YTD */}

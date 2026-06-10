@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '200')
   let query = supabase
     .from('bank_transactions')
-    .select('*, invoices(number, subject_name), expense_invoices(supplier_name, variable_symbol)')
+    .select('*, invoices(number, subject_name), expense_invoices(supplier_name, variable_symbol, note)')
     .order('date', { ascending: false })
     .limit(limit)
 
