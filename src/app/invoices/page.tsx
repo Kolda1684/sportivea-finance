@@ -161,7 +161,7 @@ export default function InvoicesPage() {
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                    <p>Žádné faktury — klikni na "Sync z Fakturoid"</p>
+                    <p>Žádné faktury — klikni na &quot;Sync z Fakturoid&quot;</p>
                   </td>
                 </tr>
               ) : invoices.map(inv => (

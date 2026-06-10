@@ -33,7 +33,7 @@ interface JournalEntry {
   match_method: string | null
   account_id: string | null
   invoices?: { number: string; subject_name: string } | null
-  expense_invoices?: { supplier_name: string } | null
+  expense_invoices?: { supplier_name: string; note: string | null; variable_symbol: string | null } | null
 }
 
 function fmtCZK(n: number) {
@@ -69,7 +69,7 @@ function entryCounterparty(e: JournalEntry, description: string): string {
 }
 
 function entryDocNumber(e: JournalEntry): string {
-  return e.invoices?.number ?? ''
+  return e.invoices?.number ?? e.expense_invoices?.note ?? e.expense_invoices?.variable_symbol ?? ''
 }
 
 function EditTransactionModal({ entry, onSaved, onClose }: {
@@ -203,6 +203,15 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
     })
   }
 
+  async function updateMatch(id: string, action: 'confirm_match' | 'reject_match') {
+    await fetch(`/api/banking/transactions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    onRefresh()
+  }
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <table className="w-full text-xs border-collapse">
@@ -268,7 +277,25 @@ function AccountTable({ account, entries, year, month, onRefresh }: {
                   {fmtCZK(r.balance)}
                 </td>
                 <td className="px-2 py-1 border border-gray-200">
-                  <MatchBadge entry={r.entry} />
+                  <div className="flex items-center gap-1.5">
+                    <MatchBadge entry={r.entry} />
+                    {r.entry.status === 'pending_review' && (
+                      <>
+                        <button
+                          onClick={() => updateMatch(r.entry.id, 'confirm_match')}
+                          className="rounded bg-green-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-green-700"
+                        >
+                          Potvrdit
+                        </button>
+                        <button
+                          onClick={() => updateMatch(r.entry.id, 'reject_match')}
+                          className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-200"
+                        >
+                          Odmítnout
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </td>
                 <td className="px-2 py-1 font-mono text-gray-400 border border-gray-200 bg-gray-50/50" title={r.entry.variable_symbol ?? ''}>
                   {r.entry.variable_symbol ?? ''}
@@ -460,7 +487,7 @@ export default function JournalPage() {
       const res = await fetch('/api/banking/match', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Chyba párování')
-      alert(`Párování dokončeno:\n✓ Auto: ${data.auto}\n⚠ Ke kontrole: ${data.suggest}\n! Manuální: ${data.manual}`)
+      alert(`Párování dokončeno:\nPříjmy: ${data.income}\nVýdaje: ${data.expense}\n\n✓ Auto: ${data.auto}\n⚠ Ke kontrole: ${data.suggest}\n! Manuální: ${data.manual}`)
       await fetchData()
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Chyba párování')

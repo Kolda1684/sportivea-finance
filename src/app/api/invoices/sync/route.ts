@@ -4,6 +4,7 @@ import { mapFakturoidInvoiceToDb } from '@/lib/fakturoid'
 
 const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
 const TOKEN_URL = 'https://app.fakturoid.cz/api/v3/oauth/token'
+const SYNC_KEY = 'fakturoid_invoices'
 
 async function getAccessToken(clientId: string, clientSecret: string): Promise<string> {
   const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
@@ -50,64 +51,83 @@ export async function POST() {
     'User-Agent': 'SportiveaFinanceDashboard/1.0',
   }
 
-  // Test připojení — stáhni první stránku
-  const url = `${FAKTUROID_BASE}/${slug}/invoices.json?page=1`
-  let fakturoidRes: Response
-  try {
-    fakturoidRes = await fetch(url, { headers, cache: 'no-store' })
-  } catch (e) {
-    return NextResponse.json({ error: `Nepodařilo se připojit k Fakturoid: ${e}` }, { status: 500 })
-  }
+  const supabase = createAdminSupabaseClient()
 
-  if (!fakturoidRes.ok) {
-    const body = await fakturoidRes.text()
-    return NextResponse.json(
-      { error: `Fakturoid vrátil chybu ${fakturoidRes.status}: ${body}` },
-      { status: 500 }
-    )
-  }
+  // Zjisti čas posledního syncu pro inkrementální stahování
+  const { data: syncState } = await supabase
+    .from('sync_state')
+    .select('synced_at')
+    .eq('key', SYNC_KEY)
+    .maybeSingle()
 
-  const firstPage = await fakturoidRes.json()
-  if (!Array.isArray(firstPage)) {
-    return NextResponse.json(
-      { error: `Fakturoid vrátil neočekávaný formát: ${JSON.stringify(firstPage).slice(0, 200)}` },
-      { status: 500 }
-    )
-  }
+  const lastSyncedAt = syncState?.synced_at as string | null
+  const isIncremental = !!lastSyncedAt
+  const syncStartedAt = new Date().toISOString()
 
-  const allInvoices = [...firstPage]
+  // Stáhni faktury — inkrementálně (updated_since) nebo celé (max 5 stránek)
+  const allInvoices: Record<string, unknown>[] = []
+  const maxPages = isIncremental ? 10 : 5
+  const updatedSinceParam = isIncremental
+    ? `&updated_since=${encodeURIComponent(lastSyncedAt!)}`
+    : ''
 
-  // Stáhni další stránky
-  for (let page = 2; page <= 5; page++) {
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `${FAKTUROID_BASE}/${slug}/invoices.json?page=${page}${updatedSinceParam}`
     try {
-      const res = await fetch(`${FAKTUROID_BASE}/${slug}/invoices.json?page=${page}`, { headers, cache: 'no-store' })
-      if (!res.ok) break
+      const res = await fetch(url, { headers, cache: 'no-store' })
+      if (!res.ok) {
+        if (page === 1) {
+          const body = await res.text()
+          return NextResponse.json(
+            { error: `Fakturoid vrátil chybu ${res.status}: ${body}` },
+            { status: 500 }
+          )
+        }
+        break
+      }
       const batch = await res.json()
       if (!Array.isArray(batch) || batch.length === 0) break
       allInvoices.push(...batch)
       if (batch.length < 20) break
-    } catch {
+    } catch (e) {
+      if (page === 1) return NextResponse.json({ error: `Připojení k Fakturoid selhalo: ${e}` }, { status: 500 })
       break
     }
   }
 
   if (allInvoices.length === 0) {
-    return NextResponse.json({ imported: 0, total: 0, message: 'Žádné faktury nenalezeny ve Fakturoid' })
+    // Nic nového — přesto aktualizuj čas syncu
+    await supabase
+      .from('sync_state')
+      .upsert({ key: SYNC_KEY, synced_at: syncStartedAt, updated_at: syncStartedAt }, { onConflict: 'key' })
+    return NextResponse.json({
+      imported: 0,
+      total: 0,
+      incremental: isIncremental,
+      message: 'Žádné nové ani změněné faktury od posledního syncu',
+    })
   }
 
-  const rows = allInvoices.map(mapFakturoidInvoiceToDb)
-  const supabase = createAdminSupabaseClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = allInvoices.map((inv) => mapFakturoidInvoiceToDb(inv as any))
 
   const { error: dbError } = await supabase
     .from('invoices')
     .upsert(rows, { onConflict: 'fakturoid_id' })
 
   if (dbError) {
-    return NextResponse.json(
-      { error: `Chyba uložení do DB: ${dbError.message}` },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: `Chyba uložení do DB: ${dbError.message}` }, { status: 500 })
   }
 
-  return NextResponse.json({ imported: rows.length, total: allInvoices.length })
+  // Ulož čas tohoto syncu
+  await supabase
+    .from('sync_state')
+    .upsert({ key: SYNC_KEY, synced_at: syncStartedAt, updated_at: syncStartedAt }, { onConflict: 'key' })
+
+  return NextResponse.json({
+    imported: rows.length,
+    total: allInvoices.length,
+    incremental: isIncremental,
+    updated_since: lastSyncedAt ?? null,
+  })
 }
