@@ -25,15 +25,12 @@ const PAGE_LABELS: Record<string, string> = {
   '/invoices/expense': 'Přijaté faktury',
   '/cashflow': 'Cashflow',
   '/banking': 'Bankovní výpisy',
-  '/cenotvorba': 'Cenotvorba',
-  '/journal': 'Deník',
 }
 
 const SUGGESTIONS = [
   'Jaký je aktuální zisk?',
   'Kdo z týmu vydělává nejvíc?',
   'Co bych měl zlepšit?',
-  'Navrhni cenu za media day',
   'Kolik mám nezaplacených faktur?',
 ]
 
