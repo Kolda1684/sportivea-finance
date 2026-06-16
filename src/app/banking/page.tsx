@@ -1,14 +1,20 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, X, Search, Pencil } from 'lucide-react'
+import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 interface BankAccount {
   id: string
   name: string
   account_number: string | null
   starting_balance: number | null
+  currency: string
+  sort_order: number | null
 }
 
 interface BankTx {
@@ -98,7 +104,6 @@ function scoreMatch(
 }
 
 function accountLabel(acc: BankAccount) {
-  if (acc.account_number) return acc.account_number
   return acc.name.replace('FIO_ucet_', 'Účet ').replace(/_/g, ' ')
 }
 
@@ -125,6 +130,10 @@ export default function BankingPage() {
   // Inline note editing
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [noteValue, setNoteValue] = useState('')
+
+  // Modals
+  const [showAccountsModal, setShowAccountsModal] = useState(false)
+  const [showAddTxModal, setShowAddTxModal] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -253,6 +262,28 @@ export default function BankingPage() {
     })
   }
 
+  async function reloadAccounts() {
+    const r = await fetch('/api/banking/accounts')
+    const data = await r.json()
+    if (Array.isArray(data)) setAccounts(data)
+  }
+
+  async function addManualTransaction(form: {
+    date: string; type: 'income' | 'expense'; amount: number;
+    note: string; counterparty_name: string; variable_symbol: string;
+  }) {
+    if (!selectedId) return { ok: false, error: 'Vyber účet' }
+    const res = await fetch('/api/banking/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: selectedId, ...form }),
+    })
+    const data = await res.json()
+    if (!res.ok) return { ok: false, error: data.error ?? 'Selhalo přidání transakce' }
+    setTxs(prev => [data, ...prev])
+    return { ok: true }
+  }
+
   // Picker items — scored by amount + name similarity, then filtered by search
   const pickerTx = txs.find(t => t.id === pickerTxId) ?? null
   const sl = search.toLowerCase()
@@ -297,6 +328,14 @@ export default function BankingPage() {
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button
+            onClick={() => setShowAccountsModal(true)}
+            className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+            title="Spravovat účty"
+          >
+            <Settings2 className="h-4 w-4" />
+            Účty
+          </button>
+          <button
             onClick={handleSync}
             disabled={syncing}
             className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-60 transition-colors"
@@ -309,7 +348,7 @@ export default function BankingPage() {
 
       {/* Účet tabs */}
       {accounts.length > 0 && (
-        <div className="flex gap-1 mb-4 border-b">
+        <div className="flex items-center gap-1 mb-4 border-b">
           {accounts.map(acc => (
             <button
               key={acc.id}
@@ -321,9 +360,19 @@ export default function BankingPage() {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               )}
             >
-              {accountLabel(acc)}
+              {accountLabel(acc)} <span className="text-xs text-gray-400 ml-1">{acc.currency}</span>
             </button>
           ))}
+          {selectedId && (
+            <button
+              onClick={() => setShowAddTxModal(true)}
+              className="ml-auto flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 px-3 py-2"
+              title="Přidat ruční transakci"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Přidat transakci
+            </button>
+          )}
         </div>
       )}
 
@@ -574,6 +623,324 @@ export default function BankingPage() {
           </div>
         </>
       )}
+
+      <AccountsManagerModal
+        open={showAccountsModal}
+        onClose={() => setShowAccountsModal(false)}
+        accounts={accounts}
+        onChanged={reloadAccounts}
+      />
+
+      <AddTransactionModal
+        open={showAddTxModal}
+        onClose={() => setShowAddTxModal(false)}
+        accountCurrency={currentAccount?.currency ?? 'CZK'}
+        accountName={currentAccount ? accountLabel(currentAccount) : ''}
+        onSubmit={addManualTransaction}
+      />
     </div>
+  )
+}
+
+// ─── Modals ──────────────────────────────────────────────────────────────────
+
+const CURRENCY_OPTIONS = ['CZK', 'EUR', 'USD', 'GBP', 'PLN', 'CHF']
+
+function AccountsManagerModal({
+  open, onClose, accounts, onChanged,
+}: {
+  open: boolean
+  onClose: () => void
+  accounts: BankAccount[]
+  onChanged: () => Promise<void>
+}) {
+  const [newName, setNewName] = useState('')
+  const [newCurrency, setNewCurrency] = useState('CZK')
+  const [newAccountNumber, setNewAccountNumber] = useState('')
+  const [newStartingBalance, setNewStartingBalance] = useState('0')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<{ name: string; currency: string; account_number: string; starting_balance: string }>({
+    name: '', currency: 'CZK', account_number: '', starting_balance: '0',
+  })
+
+  async function handleAdd() {
+    if (!newName.trim()) { setError('Vyplň název účtu'); return }
+    setBusy(true); setError(null)
+    const res = await fetch('/api/banking/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newName.trim(),
+        currency: newCurrency,
+        account_number: newAccountNumber.trim(),
+        starting_balance: Number(newStartingBalance) || 0,
+      }),
+    })
+    const data = await res.json()
+    setBusy(false)
+    if (!res.ok) { setError(data.error ?? 'Chyba'); return }
+    setNewName(''); setNewCurrency('CZK'); setNewAccountNumber(''); setNewStartingBalance('0')
+    await onChanged()
+  }
+
+  function startEdit(acc: BankAccount) {
+    setEditingId(acc.id)
+    setEditDraft({
+      name: acc.name,
+      currency: acc.currency,
+      account_number: acc.account_number ?? '',
+      starting_balance: String(acc.starting_balance ?? 0),
+    })
+  }
+
+  async function saveEdit() {
+    if (!editingId) return
+    setBusy(true); setError(null)
+    const res = await fetch('/api/banking/accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: editingId,
+        name: editDraft.name.trim(),
+        currency: editDraft.currency,
+        account_number: editDraft.account_number.trim(),
+        starting_balance: Number(editDraft.starting_balance) || 0,
+      }),
+    })
+    const data = await res.json()
+    setBusy(false)
+    if (!res.ok) { setError(data.error ?? 'Chyba'); return }
+    setEditingId(null)
+    await onChanged()
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Smazat tento účet? Lze jen pokud nemá transakce.')) return
+    setBusy(true); setError(null)
+    const res = await fetch('/api/banking/accounts', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    const data = await res.json()
+    setBusy(false)
+    if (!res.ok) { setError(data.error ?? 'Chyba'); return }
+    await onChanged()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Bankovní účty</DialogTitle>
+        </DialogHeader>
+
+        {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-2">{error}</div>}
+
+        <div className="space-y-1">
+          {accounts.map(acc => (
+            <div key={acc.id} className="rounded-lg border p-3 space-y-2">
+              {editingId === acc.id ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-gray-500">Název</Label>
+                    <Input value={editDraft.name} onChange={e => setEditDraft({ ...editDraft, name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Měna</Label>
+                    <select
+                      value={editDraft.currency}
+                      onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}
+                      className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    >
+                      {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Číslo účtu</Label>
+                    <Input value={editDraft.account_number} onChange={e => setEditDraft({ ...editDraft, account_number: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Počáteční zůstatek</Label>
+                    <Input type="number" step="0.01" value={editDraft.starting_balance} onChange={e => setEditDraft({ ...editDraft, starting_balance: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 flex gap-2 justify-end">
+                    <Button variant="outline" size="sm" onClick={() => setEditingId(null)} disabled={busy}>Zrušit</Button>
+                    <Button size="sm" onClick={saveEdit} disabled={busy}>Uložit</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm">{acc.name} <span className="text-xs text-gray-500 ml-1">{acc.currency}</span></p>
+                    <p className="text-xs text-gray-500">
+                      {acc.account_number ?? 'bez čísla účtu'}
+                      {' · '}
+                      Počáteční: <span className="tabular-nums">{Number(acc.starting_balance ?? 0).toLocaleString('cs-CZ', { minimumFractionDigits: 2 })} {acc.currency}</span>
+                    </p>
+                  </div>
+                  <button onClick={() => startEdit(acc)} className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => handleDelete(acc.id)} className="text-xs text-gray-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg border-2 border-dashed border-gray-200 p-3 space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Přidat účet</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs text-gray-500">Název *</Label>
+              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="např. Revolut" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Měna</Label>
+              <select
+                value={newCurrency}
+                onChange={e => setNewCurrency(e.target.value)}
+                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+              >
+                {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Číslo účtu</Label>
+              <Input value={newAccountNumber} onChange={e => setNewAccountNumber(e.target.value)} placeholder="volitelné" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Počáteční zůstatek</Label>
+              <Input type="number" step="0.01" value={newStartingBalance} onChange={e => setNewStartingBalance(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleAdd} disabled={busy || !newName.trim()}>
+              <Plus className="h-4 w-4 mr-1.5" /> Přidat
+            </Button>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Zavřít</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AddTransactionModal({
+  open, onClose, accountCurrency, accountName, onSubmit,
+}: {
+  open: boolean
+  onClose: () => void
+  accountCurrency: string
+  accountName: string
+  onSubmit: (form: {
+    date: string; type: 'income' | 'expense'; amount: number;
+    note: string; counterparty_name: string; variable_symbol: string;
+  }) => Promise<{ ok: boolean; error?: string }>
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(today)
+  const [type, setType] = useState<'income' | 'expense'>('expense')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [counterparty, setCounterparty] = useState('')
+  const [vs, setVs] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function reset() {
+    setDate(today); setType('expense'); setAmount(''); setNote('')
+    setCounterparty(''); setVs(''); setError(null)
+  }
+
+  async function handleSave() {
+    const amt = parseFloat(amount.replace(',', '.'))
+    if (!Number.isFinite(amt) || amt <= 0) { setError('Částka musí být kladné číslo'); return }
+    setBusy(true); setError(null)
+    const res = await onSubmit({
+      date, type, amount: amt,
+      note: note.trim(),
+      counterparty_name: counterparty.trim(),
+      variable_symbol: vs.trim(),
+    })
+    setBusy(false)
+    if (!res.ok) { setError(res.error ?? 'Chyba'); return }
+    reset()
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); reset() } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Přidat transakci ({accountName})</DialogTitle>
+        </DialogHeader>
+
+        {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-2">{error}</div>}
+
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            {(['income', 'expense'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={cn(
+                  'flex-1 px-3 py-2 rounded-lg text-sm border transition-colors',
+                  type === t
+                    ? t === 'income'
+                      ? 'bg-green-50 border-green-300 text-green-800'
+                      : 'bg-red-50 border-red-300 text-red-800'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                )}
+              >
+                {t === 'income' ? 'Příjem' : 'Výdaj'}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs text-gray-500">Datum</Label>
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Částka ({accountCurrency})</Label>
+              <Input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs text-gray-500">Popis</Label>
+            <Input value={note} onChange={e => setNote(e.target.value)} placeholder="např. Zámečnická práce" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs text-gray-500">Protistrana</Label>
+              <Input value={counterparty} onChange={e => setCounterparty(e.target.value)} placeholder="volitelné" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Variabilní symbol</Label>
+              <Input value={vs} onChange={e => setVs(e.target.value)} placeholder="volitelné" />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { reset(); onClose() }} disabled={busy}>Zrušit</Button>
+          <Button onClick={handleSave} disabled={busy || !amount}>
+            {busy ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Ukládám</> : 'Přidat'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
