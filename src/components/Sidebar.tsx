@@ -9,10 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   LogOut,
-  FileText,
   Sparkles,
-  Calculator,
-  BookOpen,
   CheckSquare,
   Calendar,
   Users,
@@ -32,7 +29,14 @@ interface SidebarProps {
 
 const adminNavItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/income', label: 'Příjmy & Projekty', icon: DollarSign },
+  {
+    label: 'Příjmy & Projekty',
+    icon: DollarSign,
+    children: [
+      { href: '/income', label: 'Přehled' },
+      { href: '/invoices', label: 'Vydané faktury' },
+    ],
+  },
   {
     label: 'Náklady',
     icon: TrendingDown,
@@ -42,20 +46,11 @@ const adminNavItems = [
       { href: '/costs/fixed', label: 'Fixní' },
       { href: '/costs/extra', label: 'Extra' },
       { href: '/costs/salaries', label: 'Platy majitelů' },
-    ],
-  },
-  {
-    label: 'Faktury',
-    icon: FileText,
-    children: [
-      { href: '/invoices', label: 'Vydané (příjmy)' },
-      { href: '/invoices/expense', label: 'Přijaté (náklady)' },
+      { href: '/invoices/expense', label: 'Přijaté faktury' },
     ],
   },
   { href: '/invoices/upload', label: 'AI Upload faktur', icon: Sparkles },
   { href: '/banking', label: 'Bankovní výpis', icon: Landmark },
-  { href: '/journal', label: 'Finanční deník', icon: BookOpen },
-  { href: '/cenotvorba', label: 'Cenotvorba', icon: Calculator },
 ]
 
 const sharedNavItems = [
@@ -75,9 +70,10 @@ const editorNavItems = [
 export function Sidebar({ role, userName }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const isInvoicesIncome = pathname === '/invoices' || (pathname.startsWith('/invoices/') && !pathname.startsWith('/invoices/expense') && !pathname.startsWith('/invoices/upload'))
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    Náklady: pathname.startsWith('/costs'),
-    Faktury: pathname.startsWith('/invoices'),
+    'Příjmy & Projekty': pathname.startsWith('/income') || isInvoicesIncome,
+    Náklady: pathname.startsWith('/costs') || pathname.startsWith('/invoices/expense'),
   })
 
   function toggleGroup(label: string) {
