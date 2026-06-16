@@ -1,133 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
-import sharp from 'sharp'
+import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { extractInvoiceData, processFileBuffer } from '@/lib/invoice-extract'
+import { uploadInvoiceFile } from '@/lib/invoice-storage'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-const PROMPT = `Přečti tuto fakturu/účtenku a extrahuj všechna data.
-Vrať POUZE validní JSON bez jakéhokoliv dalšího textu, bez markdown bloků.
-
-Pravidla:
-- "taxable_supply_date": pokud není explicitně uvedeno DUZP, použij hodnotu "issued_on"
-- "document_type": "invoice" pro fakturu, "receipt" pro účtenku/paragon, "other" pro ostatní
-- "currency": třípísmenný kód (CZK, EUR, USD atd.)
-- Pokud pole nelze přečíst, použij null – NIKDY neinventuj hodnoty
-- Částky vždy jako číslo bez mezer a bez symbolu měny (např. 1500.00)
-- Data vždy ve formátu YYYY-MM-DD
-- "variable_symbol": variabilní symbol nebo číslo faktury
-- "supplier_name": název firmy dodavatele přesně jak je na faktuře
-- "items": pole položek faktury
-
-{
-  "document_type": "invoice",
-  "supplier_name": null,
-  "supplier_ico": null,
-  "supplier_dic": null,
-  "supplier_address": null,
-  "invoice_number": null,
-  "variable_symbol": null,
-  "issued_on": null,
-  "received_on": null,
-  "taxable_supply_date": null,
-  "due_on": null,
-  "currency": "CZK",
-  "vat_mode": "standard",
-  "items": [
-    {
-      "name": "",
-      "quantity": 1,
-      "unit": null,
-      "unit_price": 0,
-      "vat_rate": 21
-    }
-  ],
-  "total_without_vat": null,
-  "vat_amount": null,
-  "total_with_vat": null,
-  "note": null,
-  "confidence": {
-    "overall": 0,
-    "low_confidence_fields": []
-  }
-}`
+const MAX_MB = 10
 
 export async function POST(req: NextRequest) {
   const form = await req.formData()
   const file = form.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'Chybí soubor' }, { status: 400 })
-
-  const MAX_MB = 10
   if (file.size > MAX_MB * 1024 * 1024) {
-    return NextResponse.json({ error: `Soubor je příliš velký. Maximum je ${MAX_MB} MB.` }, { status: 400 })
+    return NextResponse.json({ error: `Soubor je větší než ${MAX_MB} MB` }, { status: 400 })
   }
 
   const rawBytes = Buffer.from(await file.arrayBuffer())
-  let imageBuffer: Buffer = rawBytes
+  const filename = file.name || 'faktura'
+  const supabase = createAdminSupabaseClient()
 
-  // Detekuj PDF podle MIME typu nebo přípony souboru (file.type bývá prázdný na serveru)
-  const isPdf =
-    file.type === 'application/pdf' ||
-    file.name?.toLowerCase().endsWith('.pdf')
-
-  // Kompresuj VŽDY u obrázků — Claude API limit je 5 MB (base64 nafukuje o ~33 %)
-  if (!isPdf) {
-    imageBuffer = await sharp(imageBuffer)
-      .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer()
-  }
-
-  const base64 = imageBuffer.toString('base64')
-
-  // Po kompresi je vždy JPEG
-  const imageType = isPdf ? 'image/jpeg' : 'image/jpeg'
-
-  const fileBlock = isPdf
-    ? ({
-        type: 'document' as const,
-        source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: base64 },
-      })
-    : ({
-        type: 'image' as const,
-        source: {
-          type: 'base64' as const,
-          media_type: imageType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
-          data: base64,
-        },
-      })
-
+  let processed: Awaited<ReturnType<typeof processFileBuffer>>
   try {
-    const response = isPdf
-      ? await client.beta.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          betas: ['pdfs-2024-09-25'],
-          messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
-        })
-      : await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
-        })
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    const clean = text.replace(/```json|```/g, '').trim()
-    const jsonMatch = clean.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('Claude nevrátil validní JSON')
-
-    const data = JSON.parse(jsonMatch[0])
-
-    // Nastav taxable_supply_date pokud chybí
-    if (!data.taxable_supply_date && data.issued_on) {
-      data.taxable_supply_date = data.issued_on
-    }
-    // Nastav received_on pokud chybí
-    if (!data.received_on) {
-      data.received_on = new Date().toISOString().slice(0, 10)
-    }
-
-    return NextResponse.json({ ...data, _file_base64: base64, _file_type: file.type })
-  } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Chyba AI extrakce' }, { status: 500 })
+    processed = await processFileBuffer({ bytes: rawBytes, name: filename, type: file.type })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Soubor nelze zpracovat' }, { status: 400 })
   }
+
+  // 1) OCR + schema validace
+  let extracted, warnings
+  try {
+    const out = await extractInvoiceData(processed.buffer, processed.mediaType)
+    extracted = out.data
+    warnings = out.warnings
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'AI extrakce selhala' }, { status: 502 })
+  }
+
+  // 2) Duplicate detection — match podle (ico, vs, amount, date)
+  const amount = extracted.total_with_vat ?? extracted.total_without_vat ?? null
+  let duplicateOf: { id: string; supplier_name: string | null; amount: number | null; date: string | null; review_status: string } | null = null
+  if (extracted.supplier_ico || extracted.variable_symbol) {
+    const dedupQuery = supabase
+      .from('expense_invoices')
+      .select('id, supplier_name, amount, date, review_status')
+      .limit(1)
+    if (extracted.supplier_ico) dedupQuery.eq('supplier_ico', extracted.supplier_ico)
+    if (extracted.variable_symbol) dedupQuery.eq('variable_symbol', extracted.variable_symbol)
+    if (amount !== null) dedupQuery.eq('amount', amount)
+    if (extracted.issued_on) dedupQuery.eq('date', extracted.issued_on)
+    const { data } = await dedupQuery
+    if (data && data.length > 0) duplicateOf = data[0]
+  }
+
+  // 3) Insert draft (před uploadem do storage — potřebujeme ID jako prefix)
+  const { data: draft, error: insErr } = await supabase
+    .from('expense_invoices')
+    .insert({
+      supplier_name: extracted.supplier_name,
+      supplier_ico: extracted.supplier_ico,
+      amount,
+      amount_czk: extracted.currency === 'CZK' || !extracted.currency ? amount : null,
+      currency: extracted.currency ?? 'CZK',
+      date: extracted.issued_on,
+      due_date: extracted.due_on,
+      variable_symbol: extracted.variable_symbol,
+      note: extracted.invoice_number,
+      review_status: 'draft',
+      extracted_data: extracted,
+      ocr_warnings: warnings,
+      original_filename: filename,
+      status: 'unpaid',
+    })
+    .select('id')
+    .single()
+
+  if (insErr || !draft) {
+    return NextResponse.json({ error: `Uložení draftu selhalo: ${insErr?.message ?? 'unknown'}` }, { status: 500 })
+  }
+
+  // 4) Upload zpracovaného souboru do Storage (PDF zůstává PDF, HEIC/img → JPEG)
+  const baseName = filename.replace(/\.[^.]+$/, '') || 'faktura'
+  const storedName = processed.isPdf ? `${baseName}.pdf` : `${baseName}.jpg`
+  let filePath: string | null = null
+  try {
+    filePath = await uploadInvoiceFile(draft.id, storedName, processed.buffer, processed.mediaType)
+    await supabase.from('expense_invoices').update({ file_path: filePath }).eq('id', draft.id)
+  } catch (e) {
+    // Storage selhal — smaž draft, ať neukotvíme orphan
+    await supabase.from('expense_invoices').delete().eq('id', draft.id)
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Upload souboru selhal' }, { status: 500 })
+  }
+
+  return NextResponse.json({
+    draft_id: draft.id,
+    extracted,
+    warnings,
+    duplicate_of: duplicateOf,
+    file_path: filePath,
+  })
 }

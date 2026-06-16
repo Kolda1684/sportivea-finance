@@ -6,6 +6,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('expense_invoices')
     .select('*')
+    .eq('review_status', 'approved')
     .order('date', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data ?? [])
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
       due_date: body.due_date || null,
       variable_symbol: body.variable_symbol || null,
       status: body.status || 'unpaid',
+      review_status: 'approved',
       note: body.note || null,
     })
     .select()

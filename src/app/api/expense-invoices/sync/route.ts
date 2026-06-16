@@ -109,6 +109,7 @@ export async function POST() {
       due_date: (inv.due_on as string) || null,
       variable_symbol: (inv.variable_symbol as string) || null,
       status: (inv.status as string) === 'paid' ? 'paid' : 'unpaid',
+      review_status: 'approved',
       note: (inv.number as string) ? `Fakturoid #${inv.number}` : null,
     }))
 

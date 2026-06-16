@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Upload, FileText, CheckCircle, AlertCircle, Loader2, X, Plus, Trash2,
-  Clock, ChevronRight, Link2,
+  Clock, ChevronRight, Link2, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -37,10 +37,10 @@ interface ExtractedInvoice {
   vat_amount: number | null
   total_with_vat: number | null
   note: string | null
-  confidence: { overall: number; low_confidence_fields: string[] }
-  _file_base64?: string
-  _file_type?: string
 }
+
+interface OcrWarning { field: string; message: string }
+interface DuplicateRef { id: string; supplier_name: string | null; amount: number | null; date: string | null; review_status: string }
 
 type ItemStatus = 'pending' | 'reading' | 'extracted' | 'submitting' | 'done' | 'error'
 
@@ -57,20 +57,25 @@ interface SuggestedTx {
 
 interface QueueItem {
   id: string
-  file: File
-  previewUrl: string
+  // For locally uploaded files: file blob (used for preview URL)
+  // For drafts loaded from server: no file blob, we use signed file_url instead
+  file: File | null
+  filename: string
+  previewUrl: string | null
   status: ItemStatus
+  draftId: string | null
   extracted: ExtractedInvoice | null
+  warnings: OcrWarning[]
+  duplicateOf: DuplicateRef | null
   result: { fakturoid_id: number; number: string } | null
   errorMsg: string
   duzpManual: boolean
   vatCalcMode: 'from_base' | 'from_total'
   suggestedTx: SuggestedTx | null
-  expenseInvoiceId: string | null
   matchConfirmed: boolean
 }
 
-// ─── Small helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function statusIcon(status: ItemStatus) {
   switch (status) {
@@ -89,20 +94,20 @@ function statusLabel(status: ItemStatus) {
     case 'reading':    return 'Čtu…'
     case 'extracted':  return 'Ke kontrole'
     case 'submitting': return 'Odesílám…'
-    case 'done':       return 'Hotovo'
+    case 'done':       return 'Schváleno'
     case 'error':      return 'Chyba'
   }
 }
 
-function Field({ label, value, onChange, type = 'text', lowConfidence }: {
+function Field({ label, value, onChange, type = 'text', warning }: {
   label: string; value: string; onChange: (v: string) => void
-  type?: string; lowConfidence?: boolean
+  type?: string; warning?: string
 }) {
   return (
     <div className="space-y-1">
       <label className="text-xs text-gray-500 flex items-center gap-1">
         {label}
-        {lowConfidence && <span title="Ověřte prosím tuto hodnotu" className="text-yellow-500">⚠</span>}
+        {warning && <span title={warning} className="text-yellow-500">⚠</span>}
       </label>
       <input
         type={type}
@@ -110,106 +115,176 @@ function Field({ label, value, onChange, type = 'text', lowConfidence }: {
         onChange={e => onChange(e.target.value)}
         className={cn(
           'w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-900',
-          lowConfidence ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200'
+          warning ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200'
         )}
       />
     </div>
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+function fileToPreviewUrl(file: File | null): string | null {
+  if (!file) return null
+  return URL.createObjectURL(file)
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
 
 export default function UploadInvoicePage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [draftsLoaded, setDraftsLoaded] = useState(false)
+
+  // Debounced auto-save: map of draftId → timeout
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const selected = queue.find(q => q.id === selectedId) ?? null
 
-  // ── Patch queue item ─────────────────────────────────────────────────────
   const patch = useCallback((id: string, update: Partial<QueueItem>) => {
     setQueue(prev => prev.map(q => q.id === id ? { ...q, ...update } : q))
   }, [])
 
-  // ── Extract one file ─────────────────────────────────────────────────────
+  // Load existing drafts on mount so refresh doesn't lose work
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/invoices/drafts')
+      .then(r => r.json())
+      .then((data: { drafts?: Array<{ id: string; extracted_data: ExtractedInvoice; ocr_warnings: OcrWarning[]; file_url: string | null; original_filename: string | null; supplier_name: string | null }> }) => {
+        if (cancelled) return
+        const items: QueueItem[] = (data.drafts ?? []).map(d => ({
+          id: crypto.randomUUID(),
+          file: null,
+          filename: d.original_filename ?? d.supplier_name ?? 'Draft',
+          previewUrl: d.file_url,
+          status: 'extracted',
+          draftId: d.id,
+          extracted: d.extracted_data,
+          warnings: d.ocr_warnings ?? [],
+          duplicateOf: null,
+          result: null,
+          errorMsg: '',
+          duzpManual: false,
+          vatCalcMode: 'from_base',
+          suggestedTx: null,
+          matchConfirmed: false,
+        }))
+        setQueue(items)
+        if (items.length > 0) setSelectedId(items[0].id)
+        setDraftsLoaded(true)
+      })
+      .catch(() => setDraftsLoaded(true))
+    return () => { cancelled = true }
+  }, [])
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      queue.forEach(q => { if (q.file && q.previewUrl) URL.revokeObjectURL(q.previewUrl) })
+      Object.values(saveTimers.current).forEach(clearTimeout)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Schedule a debounced PATCH for a draft
+  const scheduleSave = useCallback((draftId: string, extracted: ExtractedInvoice) => {
+    if (saveTimers.current[draftId]) clearTimeout(saveTimers.current[draftId])
+    saveTimers.current[draftId] = setTimeout(async () => {
+      delete saveTimers.current[draftId]
+      try {
+        await fetch(`/api/invoices/drafts/${draftId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ extracted }),
+        })
+      } catch { /* silent — user is editing, retry on next change */ }
+    }, 800)
+  }, [])
+
+  // Extract one file (server saves draft)
   const extractItem = useCallback(async (item: QueueItem) => {
     patch(item.id, { status: 'reading' })
     try {
+      if (!item.file) throw new Error('Chybí soubor')
       const form = new FormData()
       form.append('file', item.file)
       const res = await fetch('/api/invoices/extract', { method: 'POST', body: form })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Chyba při čtení faktury')
-      patch(item.id, { status: 'extracted', extracted: data })
-    } catch (e: unknown) {
       patch(item.id, {
-        status: 'error',
-        errorMsg: e instanceof Error ? e.message : 'Neznámá chyba',
+        status: 'extracted',
+        draftId: data.draft_id,
+        extracted: data.extracted,
+        warnings: data.warnings ?? [],
+        duplicateOf: data.duplicate_of ?? null,
       })
+    } catch (e) {
+      patch(item.id, { status: 'error', errorMsg: e instanceof Error ? e.message : 'Neznámá chyba' })
     }
   }, [patch])
 
-  // ── Add files ────────────────────────────────────────────────────────────
   const addFiles = useCallback((files: File[]) => {
     const newItems: QueueItem[] = files.map(file => ({
       id: crypto.randomUUID(),
       file,
-      previewUrl: URL.createObjectURL(file),
+      filename: file.name,
+      previewUrl: fileToPreviewUrl(file),
       status: 'pending' as ItemStatus,
+      draftId: null,
       extracted: null,
+      warnings: [],
+      duplicateOf: null,
       result: null,
       errorMsg: '',
       duzpManual: false,
       vatCalcMode: 'from_base',
       suggestedTx: null,
-      expenseInvoiceId: null,
       matchConfirmed: false,
     }))
-    setQueue(prev => {
-      const updated = [...prev, ...newItems]
-      // Auto-select first if nothing selected
-      return updated
-    })
-    // Auto-select first new item
+    setQueue(prev => [...prev, ...newItems])
     if (newItems.length > 0) setSelectedId(newItems[0].id)
-    // Kick off extraction for each
-    newItems.forEach(item => extractItem(item))
+    // Sekvenčně zpracuj nahrané soubory — chrání nás před rate-limity Claude API
+    void (async () => {
+      for (const item of newItems) await extractItem(item)
+    })()
   }, [extractItem])
 
-  // ── Submit one item to Fakturoid ─────────────────────────────────────────
-  async function submitItem(id: string) {
+  // Approve = send to Fakturoid
+  async function approveItem(id: string) {
     const item = queue.find(q => q.id === id)
-    if (!item?.extracted) return
+    if (!item?.draftId || !item.extracted) return
     patch(id, { status: 'submitting' })
     try {
-      const { extracted, vatCalcMode } = item
-      const extractedForSubmit = vatCalcMode === 'from_total'
+      const { extracted, vatCalcMode, draftId } = item
+      // Pokud byly položky zadány jako "z celkové ceny", přepočítej před odesláním
+      const extractedToSend = vatCalcMode === 'from_total'
         ? { ...extracted, items: extracted.items.map(it => ({ ...it, unit_price: it.unit_price / (1 + it.vat_rate / 100) })) }
         : extracted
-      const res = await fetch('/api/invoices/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          extracted: extractedForSubmit,
-          file_base64: extracted._file_base64,
-          file_type: extracted._file_type,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        const detail = data.details ? JSON.stringify(data.details, null, 2) : ''
-        throw new Error(`${data.error ?? 'Chyba'}${detail ? '\n' + detail : ''}`)
+
+      // Nejprve uložit aktuální editovaný stav (pokud čeká debounced save)
+      if (saveTimers.current[draftId]) {
+        clearTimeout(saveTimers.current[draftId])
+        delete saveTimers.current[draftId]
       }
+      const patchRes = await fetch(`/api/invoices/drafts/${draftId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extracted: extractedToSend }),
+      })
+      if (!patchRes.ok) {
+        const err = await patchRes.json().catch(() => ({}))
+        throw new Error(`Uložení změn selhalo: ${err.error ?? patchRes.status}`)
+      }
+
+      const res = await fetch(`/api/invoices/drafts/${draftId}/approve`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Schválení selhalo')
+
       patch(id, {
         status: 'done',
-        result: data,
+        result: { fakturoid_id: data.fakturoid_id, number: data.number },
         suggestedTx: data.suggestedTx ?? null,
-        expenseInvoiceId: data.expenseInvoiceId ?? null,
       })
-      if (data.attachmentError) {
-        patch(id, { errorMsg: `Vloženo, ale příloha selhala: ${data.attachmentError}` })
-      }
-    } catch (e: unknown) {
+    } catch (e) {
       patch(id, { status: 'error', errorMsg: e instanceof Error ? e.message : 'Neznámá chyba' })
     }
   }
@@ -223,50 +298,56 @@ export default function UploadInvoicePage() {
     patch(queueId, { matchConfirmed: true })
   }
 
-  function removeItem(id: string) {
+  async function removeItem(id: string) {
     const item = queue.find(q => q.id === id)
-    if (item) URL.revokeObjectURL(item.previewUrl)
+    if (!item) return
+    // Pokud má draft v DB a ještě neschválen, smaž ho
+    if (item.draftId && item.status !== 'done') {
+      try {
+        await fetch(`/api/invoices/drafts/${item.draftId}`, { method: 'DELETE' })
+      } catch { /* už nemůžeme — pokračuj v UI cleanup */ }
+    }
+    if (item.file && item.previewUrl) URL.revokeObjectURL(item.previewUrl)
     setQueue(prev => prev.filter(q => q.id !== id))
     if (selectedId === id) setSelectedId(queue.find(q => q.id !== id)?.id ?? null)
   }
 
   function updateExtracted(id: string, update: Partial<ExtractedInvoice>) {
-    setQueue(prev => prev.map(q =>
-      q.id === id && q.extracted ? { ...q, extracted: { ...q.extracted, ...update } } : q
-    ))
+    setQueue(prev => prev.map(q => {
+      if (q.id !== id || !q.extracted) return q
+      const newExt = { ...q.extracted, ...update }
+      if (q.draftId) scheduleSave(q.draftId, newExt)
+      return { ...q, extracted: newExt }
+    }))
   }
 
   function updateItem(queueId: string, itemIdx: number, patch2: Partial<InvoiceItem>) {
-    setQueue(prev => prev.map(q =>
-      q.id === queueId && q.extracted
-        ? { ...q, extracted: { ...q.extracted, items: q.extracted.items.map((it, i) => i === itemIdx ? { ...it, ...patch2 } : it) } }
-        : q
-    ))
+    setQueue(prev => prev.map(q => {
+      if (q.id !== queueId || !q.extracted) return q
+      const newExt = { ...q.extracted, items: q.extracted.items.map((it, i) => i === itemIdx ? { ...it, ...patch2 } : it) }
+      if (q.draftId) scheduleSave(q.draftId, newExt)
+      return { ...q, extracted: newExt }
+    }))
   }
 
   function addLineItem(queueId: string) {
-    setQueue(prev => prev.map(q =>
-      q.id === queueId && q.extracted
-        ? { ...q, extracted: { ...q.extracted, items: [...q.extracted.items, { name: '', quantity: 1, unit: null, unit_price: 0, vat_rate: 21 }] } }
-        : q
-    ))
+    setQueue(prev => prev.map(q => {
+      if (q.id !== queueId || !q.extracted) return q
+      const newExt = { ...q.extracted, items: [...q.extracted.items, { name: '', quantity: 1, unit: null, unit_price: 0, vat_rate: 21 }] }
+      if (q.draftId) scheduleSave(q.draftId, newExt)
+      return { ...q, extracted: newExt }
+    }))
   }
 
   function removeLineItem(queueId: string, itemIdx: number) {
-    setQueue(prev => prev.map(q =>
-      q.id === queueId && q.extracted
-        ? { ...q, extracted: { ...q.extracted, items: q.extracted.items.filter((_, i) => i !== itemIdx) } }
-        : q
-    ))
+    setQueue(prev => prev.map(q => {
+      if (q.id !== queueId || !q.extracted) return q
+      const newExt = { ...q.extracted, items: q.extracted.items.filter((_, i) => i !== itemIdx) }
+      if (q.draftId) scheduleSave(q.draftId, newExt)
+      return { ...q, extracted: newExt }
+    }))
   }
 
-  // Cleanup blob URLs on unmount
-  useEffect(() => {
-    return () => { queue.forEach(q => URL.revokeObjectURL(q.previewUrl)) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // ── Computed totals ──────────────────────────────────────────────────────
   function computeTotals(item: QueueItem) {
     const items = item.extracted?.items ?? []
     const mode = item.vatCalcMode
@@ -281,29 +362,29 @@ export default function UploadInvoicePage() {
 
   const pendingCount = queue.filter(q => q.status === 'pending' || q.status === 'reading').length
   const doneCount = queue.filter(q => q.status === 'done').length
+  const draftCount = queue.filter(q => q.status === 'extracted').length
 
-  // ─── Render ─────────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full p-8 gap-6 min-h-0">
 
-      {/* Header */}
       <div className="flex-shrink-0 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">AI Upload faktur</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Nahraj více PDF/fotek najednou — Claude je přečte a ty jen zkontrolovuješ
+            Nahraj fakturu — AI ji přečte, ty zkontroluješ, schválíš → poletí do Fakturoidu.
           </p>
         </div>
         {queue.length > 0 && (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            {pendingCount > 0 && <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> {pendingCount} zpracovávám</span>}
-            {doneCount > 0 && <span className="flex items-center gap-1 text-green-600"><CheckCircle className="h-3 w-3" /> {doneCount} hotovo</span>}
+          <div className="flex items-center gap-3 text-xs text-gray-500">
+            {pendingCount > 0 && <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> {pendingCount} čtu</span>}
+            {draftCount > 0 && <span className="flex items-center gap-1 text-yellow-700"><FileText className="h-3 w-3" /> {draftCount} ke kontrole</span>}
+            {doneCount > 0 && <span className="flex items-center gap-1 text-green-600"><CheckCircle className="h-3 w-3" /> {doneCount} schváleno</span>}
           </div>
         )}
       </div>
 
-      {/* Drop zone — always visible */}
       <div
         className="flex-shrink-0"
         onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)) }}
@@ -332,16 +413,21 @@ export default function UploadInvoicePage() {
         </div>
       </div>
 
-      {queue.length === 0 && (
+      {queue.length === 0 && draftsLoaded && (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
           Zatím žádné faktury
+        </div>
+      )}
+
+      {queue.length === 0 && !draftsLoaded && (
+        <div className="flex-1 flex items-center justify-center gap-2 text-gray-400 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> Načítám drafty…
         </div>
       )}
 
       {queue.length > 0 && (
         <div className="flex flex-1 gap-4 min-h-0">
 
-          {/* ── Left: queue list ─────────────────────────────────────────── */}
           <div className="w-56 flex-shrink-0 flex flex-col gap-1 overflow-y-auto">
             {queue.map(item => (
               <button
@@ -349,13 +435,11 @@ export default function UploadInvoicePage() {
                 onClick={() => setSelectedId(item.id)}
                 className={cn(
                   'flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors w-full group',
-                  selectedId === item.id
-                    ? 'bg-primary-900 text-white'
-                    : 'hover:bg-gray-100 text-gray-700'
+                  selectedId === item.id ? 'bg-primary-900 text-white' : 'hover:bg-gray-100 text-gray-700'
                 )}
               >
                 {statusIcon(item.status)}
-                <span className="flex-1 truncate text-xs font-medium">{item.file.name}</span>
+                <span className="flex-1 truncate text-xs font-medium">{item.filename}</span>
                 <span className={cn(
                   'text-xs flex-shrink-0',
                   selectedId === item.id ? 'text-primary-200' : 'text-gray-400'
@@ -375,7 +459,6 @@ export default function UploadInvoicePage() {
             ))}
           </div>
 
-          {/* ── Right: detail panel ───────────────────────────────────────── */}
           <div className="flex-1 min-w-0 overflow-y-auto">
             {!selected && (
               <div className="flex h-full items-center justify-center text-gray-400 text-sm">
@@ -411,15 +494,9 @@ export default function UploadInvoicePage() {
                       Náklad <span className="font-mono">{selected.result.number}</span> byl vložen do Fakturoidu
                     </p>
                   </div>
-                  {selected.errorMsg && (
-                    <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
-                      {selected.errorMsg}
-                    </p>
-                  )}
                 </div>
 
-                {/* Bank match suggestion */}
-                {selected.suggestedTx && selected.expenseInvoiceId && !selected.matchConfirmed && (
+                {selected.suggestedTx && !selected.matchConfirmed && selected.draftId && (
                   <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-start gap-3">
                     <Link2 className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
@@ -437,7 +514,7 @@ export default function UploadInvoicePage() {
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
                       <button
-                        onClick={() => confirmMatch(selected.id, selected.suggestedTx!.id, selected.expenseInvoiceId!)}
+                        onClick={() => confirmMatch(selected.id, selected.suggestedTx!.id, selected.draftId!)}
                         className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         Spárovat
@@ -470,7 +547,7 @@ export default function UploadInvoicePage() {
                 onRemoveItem={idx => removeLineItem(selected.id, idx)}
                 onToggleVatMode={() => patch(selected.id, { vatCalcMode: selected.vatCalcMode === 'from_base' ? 'from_total' : 'from_base' })}
                 onToggleDuzp={() => patch(selected.id, { duzpManual: true })}
-                onSubmit={() => submitItem(selected.id)}
+                onApprove={() => approveItem(selected.id)}
                 onRemove={() => removeItem(selected.id)}
                 totals={computeTotals(selected)}
               />
@@ -482,11 +559,11 @@ export default function UploadInvoicePage() {
   )
 }
 
-// ─── Detail panel (extracted invoice + PDF preview) ───────────────────────────
+// ─── Detail panel ────────────────────────────────────────────────────────────
 
 function DetailPanel({
   item, onUpdateExtracted, onUpdateItem, onAddItem, onRemoveItem,
-  onToggleVatMode, onToggleDuzp, onSubmit, onRemove, totals,
+  onToggleVatMode, onToggleDuzp, onApprove, onRemove, totals,
 }: {
   item: QueueItem
   onUpdateExtracted: (u: Partial<ExtractedInvoice>) => void
@@ -495,56 +572,60 @@ function DetailPanel({
   onRemoveItem: (i: number) => void
   onToggleVatMode: () => void
   onToggleDuzp: () => void
-  onSubmit: () => void
+  onApprove: () => void
   onRemove: () => void
   totals: { withoutVat: number; total: number; vat: number }
 }) {
   const ext = item.extracted!
-  const lowFields = new Set(ext.confidence?.low_confidence_fields ?? [])
-  const confidence = ext.confidence?.overall ?? 100
-  const isLow = (f: string) => lowFields.has(f)
-  const isPdf = item.file.type === 'application/pdf'
+  const warningByField = new Map(item.warnings.map(w => [w.field, w.message]))
+  const isPdf = item.previewUrl?.toLowerCase().includes('.pdf') || item.file?.type === 'application/pdf'
 
   return (
     <div className="flex gap-4 items-start">
 
-      {/* PDF / Image preview */}
       <div className="w-[520px] flex-shrink-0 rounded-xl border overflow-hidden bg-gray-100 sticky top-0" style={{ height: '90vh' }}>
-        {isPdf ? (
-          <iframe
-            src={item.previewUrl}
-            className="w-full h-full"
-            title="Náhled faktury"
-          />
-        ) : (
-          <img
-            src={item.previewUrl}
-            alt="Náhled faktury"
-            className="w-full h-full object-contain"
-          />
+        {item.previewUrl && isPdf && (
+          <iframe src={item.previewUrl} className="w-full h-full" title="Náhled faktury" />
+        )}
+        {item.previewUrl && !isPdf && (
+          <img src={item.previewUrl} alt="Náhled faktury" className="w-full h-full object-contain" />
+        )}
+        {!item.previewUrl && (
+          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
+            Náhled není k dispozici
+          </div>
         )}
       </div>
 
-      {/* Form */}
       <div className="flex-1 min-w-0 space-y-4">
 
-        {/* Confidence banners */}
-        {confidence < 60 && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            Snímek je nekvalitní — Claude si nebyl jistý většinou polí. Zkontrolujte vše pečlivě.
+        {item.duplicateOf && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex items-start gap-2 text-sm text-orange-900">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium">Možný duplikát</p>
+              <p className="text-xs text-orange-800 mt-0.5">
+                {item.duplicateOf.supplier_name ?? 'neznámý dodavatel'} · {item.duplicateOf.date ?? '—'} · {item.duplicateOf.amount?.toLocaleString('cs-CZ') ?? '—'} Kč
+                {' '}({item.duplicateOf.review_status === 'draft' ? 'existující draft' : 'už ve Fakturoidu'})
+              </p>
+            </div>
           </div>
         )}
-        {confidence >= 60 && confidence < 80 && lowFields.size > 0 && (
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            Pole označená ⚠ si prosím ověřte — Claude si nebyl 100% jistý hodnotou.
+
+        {item.warnings.length > 0 && (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 space-y-1">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              Pole označená ⚠ si prosím zkontroluj
+            </div>
+            <ul className="text-xs text-yellow-700 list-disc ml-5">
+              {item.warnings.slice(0, 5).map((w, i) => <li key={i}>{w.field}: {w.message}</li>)}
+            </ul>
           </div>
         )}
 
         <div className="rounded-xl border bg-white p-5 space-y-5">
 
-          {/* Typ dokumentu */}
           <div className="space-y-1">
             <label className="text-xs text-gray-500">Typ dokumentu</label>
             <div className="flex gap-2">
@@ -560,67 +641,57 @@ function DetailPanel({
             </div>
           </div>
 
-          {/* Dodavatel */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <Field label="Dodavatel" value={ext.supplier_name ?? ''} lowConfidence={isLow('supplier_name')}
+              <Field label="Dodavatel" value={ext.supplier_name ?? ''} warning={warningByField.get('supplier_name')}
                 onChange={v => onUpdateExtracted({ supplier_name: v || null })} />
             </div>
-            <Field label="IČO" value={ext.supplier_ico ?? ''} lowConfidence={isLow('supplier_ico')}
+            <Field label="IČO" value={ext.supplier_ico ?? ''} warning={warningByField.get('supplier_ico')}
               onChange={v => onUpdateExtracted({ supplier_ico: v || null })} />
-            <Field label="DIČ" value={ext.supplier_dic ?? ''} lowConfidence={isLow('supplier_dic')}
+            <Field label="DIČ" value={ext.supplier_dic ?? ''} warning={warningByField.get('supplier_dic')}
               onChange={v => onUpdateExtracted({ supplier_dic: v || null })} />
             <div className="col-span-2">
-              <Field label="Adresa" value={ext.supplier_address ?? ''} lowConfidence={isLow('supplier_address')}
+              <Field label="Adresa" value={ext.supplier_address ?? ''} warning={warningByField.get('supplier_address')}
                 onChange={v => onUpdateExtracted({ supplier_address: v || null })} />
             </div>
           </div>
 
-          {/* Čísla dokladu */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Číslo dokladu" value={ext.invoice_number ?? ''} lowConfidence={isLow('invoice_number')}
+            <Field label="Číslo dokladu" value={ext.invoice_number ?? ''} warning={warningByField.get('invoice_number')}
               onChange={v => onUpdateExtracted({ invoice_number: v || null })} />
-            <Field label="Variabilní symbol" value={ext.variable_symbol ?? ''} lowConfidence={isLow('variable_symbol')}
+            <Field label="Variabilní symbol" value={ext.variable_symbol ?? ''} warning={warningByField.get('variable_symbol')}
               onChange={v => onUpdateExtracted({ variable_symbol: v || null })} />
           </div>
 
-          {/* Datumy */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Vystaven" type="date" value={ext.issued_on ?? ''} lowConfidence={isLow('issued_on')}
+            <Field label="Vystaven" type="date" value={ext.issued_on ?? ''} warning={warningByField.get('issued_on')}
               onChange={v => {
                 onUpdateExtracted({
                   issued_on: v || null,
                   taxable_supply_date: !item.duzpManual ? (v || null) : ext.taxable_supply_date,
                 })
               }} />
-            <Field label="Přijat" type="date" value={ext.received_on ?? ''} lowConfidence={isLow('received_on')}
+            <Field label="Přijat" type="date" value={ext.received_on ?? ''} warning={warningByField.get('received_on')}
               onChange={v => onUpdateExtracted({ received_on: v || null })} />
-            <Field label="Zdanitelné plnění (DUZP)" type="date" value={ext.taxable_supply_date ?? ''} lowConfidence={isLow('taxable_supply_date')}
+            <Field label="Zdanitelné plnění (DUZP)" type="date" value={ext.taxable_supply_date ?? ''} warning={warningByField.get('taxable_supply_date')}
               onChange={v => { onToggleDuzp(); onUpdateExtracted({ taxable_supply_date: v || null }) }} />
-            <Field label="Splatnost" type="date" value={ext.due_on ?? ''} lowConfidence={isLow('due_on')}
+            <Field label="Splatnost" type="date" value={ext.due_on ?? ''} warning={warningByField.get('due_on')}
               onChange={v => onUpdateExtracted({ due_on: v || null })} />
           </div>
 
-          {/* Měna */}
           <div className="w-32">
-            <Field label="Měna" value={ext.currency} lowConfidence={isLow('currency')}
+            <Field label="Měna" value={ext.currency} warning={warningByField.get('currency')}
               onChange={v => onUpdateExtracted({ currency: v })} />
           </div>
 
-          {/* Položky */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Položky</p>
               <p className="text-xs text-gray-500">
                 DPH počítám z{' '}
-                <button
-                  onClick={onToggleVatMode}
-                  className="font-semibold text-primary-900 underline underline-offset-2 hover:text-primary-700"
-                >
+                <button onClick={onToggleVatMode} className="font-semibold text-primary-900 underline underline-offset-2 hover:text-primary-700">
                   {item.vatCalcMode === 'from_base' ? 'Základu' : 'Celkové částky'}
                 </button>
-                {'  '}
-                <button onClick={onToggleVatMode} className="text-primary-900 hover:text-primary-700">Změnit</button>
               </p>
             </div>
             <div className="border rounded-lg overflow-hidden">
@@ -674,22 +745,20 @@ function DetailPanel({
             </button>
           </div>
 
-          {/* Celkem */}
           <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1 text-right">
             <div className="text-gray-500">Základ: <span className="font-medium text-gray-800">{totals.withoutVat.toLocaleString('cs-CZ', { minimumFractionDigits: 2 })} {ext.currency}</span></div>
             <div className="text-gray-500">DPH: <span className="font-medium text-gray-800">{totals.vat.toLocaleString('cs-CZ', { minimumFractionDigits: 2 })} {ext.currency}</span></div>
             <div className="text-gray-900 font-bold">Celkem: {totals.total.toLocaleString('cs-CZ', { minimumFractionDigits: 2 })} {ext.currency}</div>
           </div>
 
-          {/* Akce */}
           <div className="flex gap-3 pt-1">
-            <Button onClick={onSubmit} disabled={item.status === 'submitting'} className="flex-1">
+            <Button onClick={onApprove} disabled={item.status === 'submitting'} className="flex-1">
               {item.status === 'submitting'
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Odesílám…</>
-                : 'Vložit náklad do Fakturoidu'
+                : 'Schválit a poslat do Fakturoidu'
               }
             </Button>
-            <Button variant="outline" onClick={onRemove}>Odebrat</Button>
+            <Button variant="outline" onClick={onRemove}>Smazat draft</Button>
           </div>
         </div>
       </div>

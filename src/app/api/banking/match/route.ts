@@ -105,6 +105,7 @@ export async function POST() {
   const { data: expenseInvoices, error: expenseInvErr } = await supabase
     .from('expense_invoices')
     .select('id, supplier_name, amount, amount_czk, currency, date, due_date, variable_symbol, status, note')
+    .eq('review_status', 'approved')
     .not('status', 'eq', 'cancelled')
 
   if (expenseInvErr) return NextResponse.json({ error: expenseInvErr.message }, { status: 500 })
