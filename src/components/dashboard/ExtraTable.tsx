@@ -7,7 +7,13 @@ import { cn } from '@/lib/utils'
 
 interface ExtraCost { id: string; name: string; amount: number }
 
-export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsChange: (total: number) => void }) {
+export interface SalaryRow { owner: string; amount: number; paid: boolean }
+
+export function ExtraTable({ month, salaries = [], onTotalsChange }: {
+  month: string
+  salaries?: SalaryRow[]
+  onTotalsChange: (total: number) => void
+}) {
   const [rows, setRows]       = useState<ExtraCost[]>([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -15,14 +21,17 @@ export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsC
   const [saving, setSaving]   = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
 
+  // Platy majitelů se počítají do extra nákladů
+  const salariesTotal = salaries.reduce((s, r) => s + r.amount, 0)
+
   const load = useCallback(async () => {
     setLoading(true)
     const res = await fetch(`/api/costs/extra?month=${month}`)
     const data: ExtraCost[] = await res.json()
     setRows(data)
-    onTotalsChange(data.reduce((s, r) => s + r.amount, 0))
+    onTotalsChange(data.reduce((s, r) => s + r.amount, 0) + salariesTotal)
     setLoading(false)
-  }, [month, onTotalsChange])
+  }, [month, onTotalsChange, salariesTotal])
 
   useEffect(() => { load() }, [load])
 
@@ -40,7 +49,7 @@ export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsC
       const created: ExtraCost = await res.json()
       const next = [...rows, created]
       setRows(next)
-      onTotalsChange(next.reduce((s, r) => s + r.amount, 0))
+      onTotalsChange(next.reduce((s, r) => s + r.amount, 0) + salariesTotal)
       setNewName('')
       setNewAmt('')
       nameRef.current?.focus()
@@ -53,17 +62,18 @@ export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsC
     if (res.ok) {
       const next = rows.filter(r => r.id !== id)
       setRows(next)
-      onTotalsChange(next.reduce((s, r) => s + r.amount, 0))
+      onTotalsChange(next.reduce((s, r) => s + r.amount, 0) + salariesTotal)
     }
   }
 
-  const total = rows.reduce((s, r) => s + r.amount, 0)
+  const total = rows.reduce((s, r) => s + r.amount, 0) + salariesTotal
+  const hasRows = rows.length > 0 || salaries.length > 0
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-5 py-3 bg-gray-900 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white">Extra náklady</h2>
-        {!loading && rows.length > 0 && <span className="text-sm font-semibold text-gray-300">{formatCZK(total)}</span>}
+        {!loading && hasRows && <span className="text-sm font-semibold text-gray-300">{formatCZK(total)}</span>}
       </div>
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b border-gray-200">
@@ -75,11 +85,27 @@ export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsC
         </thead>
         <tbody className="divide-y divide-gray-100">
           {loading && <tr><td colSpan={3} className="px-5 py-4"><div className="h-4 bg-gray-100 rounded animate-pulse w-48" /></td></tr>}
-          {!loading && rows.length === 0 && (
+          {!loading && !hasRows && (
             <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">Žádné extra náklady — přidej první položku níže</td></tr>
           )}
+          {/* Platy majitelů — needitovatelné, spravují se v Náklady → Platy */}
+          {salaries.map((s, i) => (
+            <tr key={`salary-${s.owner}`} className={cn('hover:bg-blue-50/30', i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40')}>
+              <td className="px-5 py-2.5 text-gray-800">
+                <span className="font-medium">Plat — {s.owner}</span>
+                <span className={cn(
+                  'ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                  s.paid ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                )}>
+                  {s.paid ? 'Vyplaceno' : 'Pending'}
+                </span>
+              </td>
+              <td className="px-5 py-2.5 text-right font-semibold text-gray-900">{formatCZK(s.amount)}</td>
+              <td />
+            </tr>
+          ))}
           {rows.map((row, i) => (
-            <tr key={row.id} className={cn('group hover:bg-red-50/30', i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40')}>
+            <tr key={row.id} className={cn('group hover:bg-red-50/30', (salaries.length + i) % 2 === 0 ? 'bg-white' : 'bg-gray-50/40')}>
               <td className="px-5 py-2.5 text-gray-800">{row.name}</td>
               <td className="px-5 py-2.5 text-right font-semibold text-gray-900">{formatCZK(row.amount)}</td>
               <td className="px-3 py-2.5 text-right">
@@ -110,7 +136,7 @@ export function ExtraTable({ month, onTotalsChange }: { month: string; onTotalsC
             </td>
           </tr>
         </tbody>
-        {rows.length > 0 && (
+        {hasRows && (
           <tfoot className="border-t-2 border-gray-300 bg-gray-100">
             <tr>
               <td className="px-5 py-3 font-bold text-gray-900 text-xs uppercase tracking-wide">Celkem</td>
