@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { retrievePage } from '@/lib/notion'
-import { syncCompanyPage, syncTaskPage, getTasksDbId, getCompaniesDbId } from '@/lib/notion-mapping'
+import { syncCompanyPage, syncTaskPage, getTeamMemberForDb, getCompaniesDbId } from '@/lib/notion-mapping'
 
 // Notion webhook receiver.
 //
@@ -98,7 +98,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action: 'skipped' })
     }
 
-    const tasksDb = getTasksDbId()?.replace(/-/g, '')
     const companiesDb = getCompaniesDbId()?.replace(/-/g, '')
     const pageParentDb = (parentDbId ?? (page.parent.type === 'database_id' ? page.parent.database_id : null))?.replace(/-/g, '')
 
@@ -106,9 +105,13 @@ export async function POST(req: NextRequest) {
       await syncCompanyPage(page)
       return NextResponse.json({ ok: true, action: 'company_synced' })
     }
-    if (pageParentDb === tasksDb) {
-      await syncTaskPage(page)
-      return NextResponse.json({ ok: true, action: 'task_synced' })
+    // Tasks: rozhodneme podle toho, jestli parent DB patří některému zaměstnanci
+    if (pageParentDb) {
+      const teamMember = await getTeamMemberForDb(pageParentDb)
+      if (teamMember) {
+        await syncTaskPage(page, teamMember)
+        return NextResponse.json({ ok: true, action: 'task_synced', team_member: teamMember })
+      }
     }
   }
 

@@ -2,8 +2,21 @@ import type { PageObjectResponse } from '@notionhq/client/build/src/api-endpoint
 import { createAdminSupabaseClient } from './supabase-server'
 import { queryAllPages, getTitle, getRichText, getSelect, getNumber, getDate, getRelationIds } from './notion'
 
-const TASKS_DB_ID = () => process.env.NOTION_TASKS_DB_ID
 const COMPANIES_DB_ID = () => process.env.NOTION_COMPANIES_DB_ID
+
+interface EmployeeDb {
+  team_member: string
+  notion_database_id: string
+}
+
+async function loadActiveEmployeeDbs(): Promise<EmployeeDb[]> {
+  const supabase = createAdminSupabaseClient()
+  const { data } = await supabase
+    .from('notion_employee_databases')
+    .select('team_member, notion_database_id')
+    .eq('active', true)
+  return (data ?? []) as EmployeeDb[]
+}
 
 // ── Status mapování ──────────────────────────────────────────────────────────
 
@@ -182,7 +195,7 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
   }
 }
 
-export async function syncTaskPage(page: PageObjectResponse): Promise<{ id: string; created: boolean } | null> {
+export async function syncTaskPage(page: PageObjectResponse, teamMember: string): Promise<{ id: string; created: boolean } | null> {
   const mapped = mapTask(page)
   if (!mapped) return null
 
@@ -207,21 +220,19 @@ export async function syncTaskPage(page: PageObjectResponse): Promise<{ id: stri
     task_type: mapped.task_type,
     date: mapped.date,
     month: mapped.month,
+    team_member: teamMember,
     notion_page_id: mapped.notion_page_id,
     notion_last_synced: new Date().toISOString(),
-    // team_member: Notion DB to nemá → necháváme null, uživatel doplní ručně
   }
 
   const { data: existing } = await supabase
     .from('variable_costs')
-    .select('id, team_member')
+    .select('id')
     .eq('notion_page_id', mapped.notion_page_id)
     .maybeSingle()
 
   if (existing) {
-    // Nepřepisujeme team_member pokud ho už uživatel ručně doplnil
-    const updateRow = { ...row, team_member: existing.team_member }
-    await supabase.from('variable_costs').update(updateRow).eq('id', existing.id)
+    await supabase.from('variable_costs').update(row).eq('id', existing.id)
     return { id: existing.id, created: false }
   }
 
@@ -251,22 +262,53 @@ export async function bulkSyncCompanies(since?: Date): Promise<{ created: number
   return { created, updated, total: pages.length }
 }
 
-export async function bulkSyncTasks(since?: Date): Promise<{ created: number; updated: number; total: number }> {
-  const dbId = TASKS_DB_ID()
-  if (!dbId) throw new Error('Chybí NOTION_TASKS_DB_ID')
-
-  const pages = await queryAllPages(dbId, since)
-  let created = 0, updated = 0
-  for (const page of pages) {
-    const res = await syncTaskPage(page)
-    if (res?.created) created++
-    else if (res) updated++
+export async function bulkSyncTasks(since?: Date): Promise<{ created: number; updated: number; total: number; perEmployee: { team_member: string; created: number; updated: number; total: number; error?: string }[] }> {
+  const employees = await loadActiveEmployeeDbs()
+  if (employees.length === 0) {
+    throw new Error('Žádní zaměstnanci v notion_employee_databases — přidej je v /nastaveni/notion')
   }
-  return { created, updated, total: pages.length }
+
+  let created = 0, updated = 0, total = 0
+  const perEmployee: { team_member: string; created: number; updated: number; total: number; error?: string }[] = []
+
+  for (const emp of employees) {
+    try {
+      const pages = await queryAllPages(emp.notion_database_id, since)
+      let c = 0, u = 0
+      for (const page of pages) {
+        const res = await syncTaskPage(page, emp.team_member)
+        if (res?.created) c++
+        else if (res) u++
+      }
+      created += c
+      updated += u
+      total += pages.length
+      perEmployee.push({ team_member: emp.team_member, created: c, updated: u, total: pages.length })
+    } catch (e) {
+      perEmployee.push({
+        team_member: emp.team_member,
+        created: 0,
+        updated: 0,
+        total: 0,
+        error: e instanceof Error ? e.message : 'unknown',
+      })
+    }
+  }
+
+  return { created, updated, total, perEmployee }
 }
 
-export function getTasksDbId(): string | null {
-  return TASKS_DB_ID() ?? null
+// Pro webhook: zjistit team_member podle Notion DB ID
+export async function getTeamMemberForDb(notionDatabaseId: string): Promise<string | null> {
+  const supabase = createAdminSupabaseClient()
+  const cleanId = notionDatabaseId.replace(/-/g, '')
+  const { data } = await supabase
+    .from('notion_employee_databases')
+    .select('team_member')
+    .eq('notion_database_id', cleanId)
+    .eq('active', true)
+    .maybeSingle()
+  return data?.team_member ?? null
 }
 
 export function getCompaniesDbId(): string | null {

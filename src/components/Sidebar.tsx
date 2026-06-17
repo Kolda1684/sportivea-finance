@@ -60,6 +60,7 @@ const sharedNavItems = [
 
 const adminOnlyBottomItems = [
   { href: '/crm', label: 'Klienti & Kontakty', icon: Users },
+  { href: '/nastaveni/notion', label: 'Notion sync', icon: Settings },
   { href: '/nastaveni/users', label: 'Správa uživatelů', icon: Settings },
 ]
 

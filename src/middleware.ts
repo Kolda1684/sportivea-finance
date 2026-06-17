@@ -43,7 +43,7 @@ const ADMIN_ONLY_API_PREFIXES = [
   '/api/cron',
   '/api/expense-invoices',
   '/api/settings',
-  '/api/notion/sync',
+  '/api/notion',
 ]
 
 function isPublicRoute(pathname: string) {
