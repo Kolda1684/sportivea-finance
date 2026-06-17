@@ -11,10 +11,14 @@ interface KpiCardProps {
   trend?: 'up' | 'down' | 'neutral'
   description?: string
   colorClass?: string
+  format?: 'czk' | 'percent'
 }
 
-export function KpiCard({ title, value, icon: Icon, trend, description, colorClass }: KpiCardProps) {
+export function KpiCard({ title, value, icon: Icon, trend, description, colorClass, format = 'czk' }: KpiCardProps) {
   const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus
+  const displayValue = format === 'percent'
+    ? `${Math.round(value)} %`
+    : formatCZK(value)
 
   return (
     <Card>
@@ -22,8 +26,8 @@ export function KpiCard({ title, value, icon: Icon, trend, description, colorCla
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className={cn('text-2xl font-bold tracking-tight', colorClass)}>
-              {formatCZK(value)}
+            <p className={cn('text-3xl font-bold tracking-tight', colorClass)}>
+              {displayValue}
             </p>
             {description && (
               <p className="text-xs text-muted-foreground">{description}</p>

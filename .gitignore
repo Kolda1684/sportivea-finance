@@ -25,3 +25,6 @@ build/
 next-env.d.ts
 .vercel
 supabase/.temp/
+
+# Lokální nástroje (impeccable skills, settings)
+.claude/
