@@ -8,7 +8,7 @@ import {
 } from '@/lib/role-cache'
 
 const PUBLIC_ROUTES = ['/login']
-const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/logout']
+const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/logout', '/api/notion/webhook']
 const INTERNAL_CRON_API_ROUTES = [
   '/api/invoices/sync',
   '/api/expense-invoices/sync',
@@ -43,6 +43,7 @@ const ADMIN_ONLY_API_PREFIXES = [
   '/api/cron',
   '/api/expense-invoices',
   '/api/settings',
+  '/api/notion/sync',
 ]
 
 function isPublicRoute(pathname: string) {
@@ -81,7 +82,7 @@ function isAuthorizedInternalCronRequest(request: NextRequest) {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
-  if (pathname === '/api/cron/sync') {
+  if (pathname === '/api/cron/sync' || pathname === '/api/cron/notion') {
     if (isAuthorizedCronRequest(request)) return NextResponse.next()
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

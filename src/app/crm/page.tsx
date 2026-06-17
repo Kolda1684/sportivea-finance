@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, X, Loader2, Building2, User, Phone, Mail, Globe } from 'lucide-react'
+import { Plus, X, Loader2, Building2, User, Phone, Mail, Globe, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
 import type { Company, Contact } from '@/types'
 
 type Tab = 'companies' | 'contacts'
@@ -16,6 +16,38 @@ export default function CrmPage() {
 
   const [companyForm, setCompanyForm] = useState({ name: '', ico: '', website: '', note: '' })
   const [contactForm, setContactForm] = useState({ name: '', email: '', phone: '', company_id: '', note: '' })
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  async function handleNotionSync(source: 'companies' | 'tasks' | 'all') {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch('/api/notion/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSyncResult({ ok: false, message: data.error ?? 'Sync selhal' })
+      } else {
+        const parts: string[] = []
+        if (data.companies) parts.push(`Firmy: ${data.companies.created} nových, ${data.companies.updated} update`)
+        if (data.tasks) parts.push(`Tasky: ${data.tasks.created} nových, ${data.tasks.updated} update`)
+        setSyncResult({ ok: true, message: parts.join(' · ') || 'Hotovo' })
+        // Reload companies list
+        if (source !== 'tasks') {
+          const c = await fetch('/api/crm/companies').then(r => r.json())
+          setCompanies(c)
+        }
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, message: e instanceof Error ? e.message : 'Sync selhal' })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -64,16 +96,39 @@ export default function CrmPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Klienti & Kontakty</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          {tab === 'companies' ? 'Nová firma' : 'Nový kontakt'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleNotionSync('all')}
+            disabled={syncing}
+            className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
+            title="Stáhnout změny z Notion (Companies + Tasks)"
+          >
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync z Notion
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            {tab === 'companies' ? 'Nová firma' : 'Nový kontakt'}
+          </button>
+        </div>
       </div>
+
+      {syncResult && (
+        <div className={`mb-4 rounded-lg border p-3 flex items-start gap-2 text-sm ${
+          syncResult.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {syncResult.ok ? <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" /> : <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />}
+          <span>{syncResult.message}</span>
+          <button onClick={() => setSyncResult(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
