@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Upload, CheckCircle, AlertCircle, X, Pencil, Trash2, AlertCircle as AlertIcon } from 'lucide-react'
+import { Plus, Upload, CheckCircle, AlertCircle, X, Pencil, Trash2, AlertCircle as AlertIcon, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -108,6 +108,34 @@ export default function VariableCostsPage() {
   const [clientFilter, setClientFilter] = useState('all')
   const [showImport, setShowImport] = useState(false)
   const [editCost, setEditCost] = useState<VariableCost | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  async function handleNotionSync() {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch('/api/notion/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'all' }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSyncResult({ ok: false, message: data.error ?? 'Sync selhal' })
+      } else {
+        const parts: string[] = []
+        if (data.companies) parts.push(`Firmy: ${data.companies.created} nových, ${data.companies.updated} update`)
+        if (data.tasks) parts.push(`Tasky → variabilní náklady: ${data.tasks.created} nových, ${data.tasks.updated} update`)
+        setSyncResult({ ok: true, message: parts.join(' · ') || 'Hotovo' })
+        fetchCosts()
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, message: e instanceof Error ? e.message : 'Sync selhal' })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const months = getLastNMonths(12)
 
@@ -153,6 +181,10 @@ export default function VariableCostsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleNotionSync} disabled={syncing}>
+            {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Sync z Notion
+          </Button>
           <Button variant="outline" onClick={() => setShowImport(!showImport)}>
             <Upload className="h-4 w-4 mr-2" />
             Import CSV
@@ -163,6 +195,19 @@ export default function VariableCostsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Notion sync banner */}
+      {syncResult && (
+        <div className={`rounded-lg border p-3 flex items-start gap-2 text-sm ${
+          syncResult.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {syncResult.ok ? <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" /> : <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />}
+          <span>{syncResult.message}</span>
+          <button onClick={() => setSyncResult(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* CSV Import */}
       {showImport && (

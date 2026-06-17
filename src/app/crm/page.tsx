@@ -100,13 +100,13 @@ export default function CrmPage() {
         <h1 className="text-2xl font-bold text-gray-900">Klienti & Kontakty</h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleNotionSync('all')}
+            onClick={() => handleNotionSync('companies')}
             disabled={syncing}
             className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
-            title="Stáhnout změny z Notion (Companies + Tasks)"
+            title="Stáhnout firmy z Notion"
           >
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync z Notion
+            Sync firem z Notion
           </button>
           <button
             onClick={() => setShowModal(true)}

@@ -128,43 +128,36 @@ export async function syncCompanyPage(page: PageObjectResponse): Promise<{ id: s
   return { id: inserted.id, created: true }
 }
 
-// ── Tasks ────────────────────────────────────────────────────────────────────
+// ── Tasks → variable_costs ───────────────────────────────────────────────────
 
 export interface TaskMapped {
   notion_page_id: string
-  title: string
-  description: string | null
-  deadline: string | null
-  status: 'zadano' | 'v_procesu' | 'na_checku' | 'hotovo'
+  task_name: string
   task_type: string | null
   hours: number | null
-  minutes: number | null
-  one_time_reward: number | null
-  reward: number | null
+  price: number | null            // = Odměna (final), fallback Jednorázová odměna
+  date: string | null             // Deadline (kdy proběhlo)
   month: string | null
   notion_company_page_ids: string[]
 }
 
 export function mapTask(page: PageObjectResponse): TaskMapped | null {
   const props = page.properties
-  const title = getTitle(props['Task']) ?? getTitle(props['Task name']) ?? getTitle(props['Name'])
-  if (!title) return null
+  const task_name = getTitle(props['Task']) ?? getTitle(props['Task name']) ?? getTitle(props['Name'])
+  if (!task_name) return null
 
-  // Description: hledá různé možné názvy
-  const description =
-    getRichText(props['Stav']) ??
-    getRichText(props['Description']) ??
-    getRichText(props['Popis'])
-
-  // Reward (Formula nebo Number)
-  let reward: number | null = null
+  // Odměna: Formula vrátí finální cenu (Jednorázová + Hodiny*sazba apod.)
+  let finalReward: number | null = null
   const rewardProp = props['Odměna'] ?? props['Odmena']
   if (rewardProp) {
-    if (rewardProp.type === 'number') reward = rewardProp.number
-    else if (rewardProp.type === 'formula' && rewardProp.formula.type === 'number') reward = rewardProp.formula.number
+    if (rewardProp.type === 'number') finalReward = rewardProp.number
+    else if (rewardProp.type === 'formula' && rewardProp.formula.type === 'number') finalReward = rewardProp.formula.number
   }
+  const oneTime = getNumber(props['Jednorázová odměna']) ?? getNumber(props['Jednor.'])
+  // Pokud Odměna formula nevrátí číslo, použít jednorázovou
+  const price = (finalReward != null && finalReward > 0) ? finalReward : oneTime
 
-  // Měsíc: Formula vrací string nebo datum
+  // Měsíc: Formula
   let monthRaw: string | null = null
   const monthProp = props['Měsíc'] ?? props['Mesic'] ?? props['Month']
   if (monthProp) {
@@ -179,15 +172,11 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
 
   return {
     notion_page_id: page.id,
-    title,
-    description,
-    deadline: getDate(props['Deadline']) ?? getDate(props['Due Date']),
-    status: mapTaskStatus(getSelect(props['Status'])),
+    task_name,
     task_type: getSelect(props['Typ']) ?? getSelect(props['Type']),
     hours: getNumber(props['Hodiny']) ?? getNumber(props['Hod.']) ?? getNumber(props['Hours']),
-    minutes: getNumber(props['Min.']) ?? getNumber(props['Minutes']),
-    one_time_reward: getNumber(props['Jednorázová odměna']) ?? getNumber(props['Jednor.']),
-    reward,
+    price,
+    date: getDate(props['Deadline']) ?? getDate(props['Due Date']),
     month: normalizeMonth(monthRaw),
     notion_company_page_ids: getRelationIds(props['Klient']) ?? getRelationIds(props['Klienti']),
   }
@@ -199,56 +188,50 @@ export async function syncTaskPage(page: PageObjectResponse): Promise<{ id: stri
 
   const supabase = createAdminSupabaseClient()
 
-  // Resolve company_id from notion_page_id (potřebujeme Companies syncnut první)
-  let company_id: string | null = null
+  // Resolve client name z Companies tabulky (přes notion_page_id z relation)
   let client_name: string | null = null
   if (mapped.notion_company_page_ids.length > 0) {
     const { data: company } = await supabase
       .from('companies')
-      .select('id, name')
+      .select('name')
       .eq('notion_page_id', mapped.notion_company_page_ids[0])
       .maybeSingle()
-    if (company) {
-      company_id = company.id
-      client_name = company.name
-    }
+    if (company) client_name = company.name
   }
 
   const row = {
-    title: mapped.title,
-    description: mapped.description,
-    deadline: mapped.deadline,
-    status: mapped.status,
-    task_type: mapped.task_type,
-    hours: mapped.hours ?? 0,
-    minutes: mapped.minutes ?? 0,
-    one_time_reward: mapped.one_time_reward,
-    reward: mapped.reward,
-    month: mapped.month,
-    company_id,
+    task_name: mapped.task_name,
     client: client_name,
+    hours: mapped.hours,
+    price: mapped.price,
+    task_type: mapped.task_type,
+    date: mapped.date,
+    month: mapped.month,
     notion_page_id: mapped.notion_page_id,
     notion_last_synced: new Date().toISOString(),
+    // team_member: Notion DB to nemá → necháváme null, uživatel doplní ručně
   }
 
   const { data: existing } = await supabase
-    .from('tasks')
-    .select('id')
+    .from('variable_costs')
+    .select('id, team_member')
     .eq('notion_page_id', mapped.notion_page_id)
     .maybeSingle()
 
   if (existing) {
-    await supabase.from('tasks').update(row).eq('id', existing.id)
+    // Nepřepisujeme team_member pokud ho už uživatel ručně doplnil
+    const updateRow = { ...row, team_member: existing.team_member }
+    await supabase.from('variable_costs').update(updateRow).eq('id', existing.id)
     return { id: existing.id, created: false }
   }
 
   const { data: inserted, error } = await supabase
-    .from('tasks')
+    .from('variable_costs')
     .insert(row)
     .select('id')
     .single()
 
-  if (error || !inserted) throw new Error(`Insert task selhal: ${error?.message ?? 'unknown'}`)
+  if (error || !inserted) throw new Error(`Insert variable_cost selhal: ${error?.message ?? 'unknown'}`)
   return { id: inserted.id, created: true }
 }
 
