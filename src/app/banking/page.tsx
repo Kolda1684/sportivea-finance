@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2, Zap, Sparkles, Check, ArrowLeftRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2, Zap, Sparkles, Check, ArrowLeftRight, ChevronDown, ChevronUp, Upload, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,7 @@ interface BankTx {
   match_confidence: number | null
   match_method: string | null
   is_internal_transfer: boolean | null
+  is_no_invoice: boolean | null
   invoices?: { number: string; subject_name: string | null } | null
   expense_invoices?: { supplier_name: string | null; variable_symbol: string | null; note: string | null } | null
 }
@@ -141,8 +142,10 @@ export default function BankingPage() {
   // Párování — run state + pending review panel
   const [matchRunning, setMatchRunning] = useState<'auto' | 'ai' | null>(null)
   const [matchResult, setMatchResult] = useState<string | null>(null)
-  const [pendingExpanded, setPendingExpanded] = useState(true)
+  const [pendingExpanded, setPendingExpanded] = useState(false)
   const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set())
+  const [importing, setImporting] = useState(false)
+  const csvInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -323,6 +326,39 @@ export default function BankingPage() {
     await load()
   }
 
+  async function markNoInvoice(txId: string) {
+    await fetch(`/api/banking/transactions/${txId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_no_invoice' }),
+    })
+    closePicker()
+    await load()
+  }
+
+  async function handleCsvImport(file: File) {
+    setImporting(true)
+    setMatchResult(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/banking/match/import-csv', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok) {
+        setMatchResult(`❌ ${data.error ?? 'Import selhal'}`)
+      } else {
+        setMatchResult(
+          `✓ CSV (${data.year}): ${data.total_csv_entries} řádků · ${data.matched_invoices} spárováno · ${data.marked_no_invoice} bez faktury · ${data.bank_tx_not_found} bez tx v DB · ${data.invoice_not_found} bez faktury v DB`
+        )
+        await load()
+      }
+    } catch (e) {
+      setMatchResult(`❌ ${e instanceof Error ? e.message : 'Chyba'}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function addManualTransaction(form: {
     date: string; type: 'income' | 'expense'; amount: number;
     note: string; counterparty_name: string; variable_symbol: string;
@@ -399,6 +435,22 @@ export default function BankingPage() {
           >
             {matchRunning === 'ai' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             AI pomoc
+          </button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleCsvImport(f); e.target.value = '' }}
+          />
+          <button
+            onClick={() => csvInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
+            title="Naimportovat ručně spárovaný Finanční deník (CSV z Excelu)"
+          >
+            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Import CSV
           </button>
           <button
             onClick={() => setShowAccountsModal(true)}
@@ -485,24 +537,22 @@ export default function BankingPage() {
         }
 
         return (
-          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-xl overflow-hidden">
+          <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
             <button
               onClick={() => setPendingExpanded(p => !p)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-yellow-100/50 transition-colors"
+              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-gray-100/70 transition-colors text-xs"
             >
-              <span className="text-sm font-semibold text-yellow-900">
+              <span className="flex items-center gap-2 text-gray-600">
+                <ChevronDown className={cn('h-3 w-3 transition-transform', pendingExpanded && 'rotate-180')} />
                 {pendingTxs.length} návrh{pendingTxs.length === 1 ? '' : pendingTxs.length < 5 ? 'y' : 'ů'} ke schválení
               </span>
-              <div className="flex items-center gap-2">
-                {selectedCount > 0 && (
-                  <span className="text-xs text-yellow-700">{selectedCount} vybráno</span>
-                )}
-                {pendingExpanded ? <ChevronUp className="h-4 w-4 text-yellow-700" /> : <ChevronDown className="h-4 w-4 text-yellow-700" />}
-              </div>
+              {selectedCount > 0 && (
+                <span className="text-xs text-gray-500">{selectedCount} vybráno</span>
+              )}
             </button>
             {pendingExpanded && (
-              <div className="border-t border-yellow-200">
-                <div className="flex items-center justify-between px-4 py-2 bg-white/40 border-b border-yellow-200">
+              <div className="border-t border-gray-200">
+                <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
                   <label className="flex items-center gap-2 text-xs cursor-pointer">
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
                     <span>Vybrat vše</span>
@@ -532,7 +582,7 @@ export default function BankingPage() {
                       const desc = getDescription(tx)
                       const isSelected = selectedPending.has(tx.id)
                       return (
-                        <tr key={tx.id} className={cn('border-b last:border-b-0 hover:bg-white/60', isSelected && 'bg-yellow-100/40')}>
+                        <tr key={tx.id} className={cn('border-b last:border-b-0 hover:bg-gray-50', isSelected && 'bg-blue-50')}>
                           <td className="px-3 py-2 w-8">
                             <input type="checkbox" checked={isSelected} onChange={() => toggleOne(tx.id)} className="rounded" />
                           </td>
@@ -545,7 +595,7 @@ export default function BankingPage() {
                             </span>
                           </td>
                           <td className="px-2 py-2 w-20 text-right">
-                            <span className="text-xs text-yellow-700">
+                            <span className="text-xs text-gray-500">
                               {tx.match_confidence ?? 0}%
                             </span>
                           </td>
@@ -624,9 +674,16 @@ export default function BankingPage() {
                 const amt = Math.abs(tx.amount_czk ?? tx.amount)
                 const isIncome = tx.type === 'income'
                 const isMatched = !!(tx.matched_invoice_id || tx.matched_expense_invoice_id)
+                const isNoInvoice = tx.is_no_invoice === true
+                const isInternalTransfer = tx.is_internal_transfer === true
 
                 return (
-                  <tr key={tx.id} className="hover:bg-gray-50/70 group">
+                  <tr key={tx.id} className={cn(
+                    'group',
+                    isNoInvoice ? 'bg-blue-50 hover:bg-blue-100/70' :
+                    isInternalTransfer ? 'bg-gray-50 hover:bg-gray-100/70 text-gray-500' :
+                    'hover:bg-gray-50/70'
+                  )}>
                     <td className="px-3 py-2.5 text-gray-500 tabular-nums">{fmtDate(tx.date)}</td>
 
                     <td className="px-3 py-2.5">
@@ -798,9 +855,17 @@ export default function BankingPage() {
             </div>
             <div className="border-t px-3 py-2 space-y-1">
               <button
+                onClick={() => markNoInvoice(pickerTxId)}
+                className="flex items-center gap-2 text-xs text-blue-700 hover:text-blue-900 w-full text-left px-1 py-1 hover:bg-blue-50 rounded transition-colors"
+                title="Označit jako platbu bez faktury (nájem, daně, stát…)"
+              >
+                <FileText className="h-3 w-3" />
+                Bez faktury (modré zvýraznění)
+              </button>
+              <button
                 onClick={() => markInternalTransfer(pickerTxId)}
                 className="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-900 w-full text-left px-1 py-1 hover:bg-gray-50 rounded transition-colors"
-                title="Označit jako vlastní převod — nevyžaduje fakturu"
+                title="Označit jako vlastní převod mezi účty"
               >
                 <ArrowLeftRight className="h-3 w-3" />
                 Vlastní převod (skrýt z fronty)
@@ -808,7 +873,7 @@ export default function BankingPage() {
               {(pickerTx?.matched_invoice_id || pickerTx?.matched_expense_invoice_id) && (
                 <button
                   onClick={() => { handleRemoveMatch(pickerTxId); closePicker() }}
-                  className="text-xs text-red-500 hover:text-red-700 w-full text-center py-0.5"
+                  className="text-xs text-red-500 hover:text-red-700 w-full text-center py-0.5 border-t pt-2"
                 >
                   Odebrat párování
                 </button>

@@ -27,6 +27,7 @@ export async function POST() {
     .eq('type', 'income')
     .in('status', ['unmatched', 'pending_review'])
     .or('is_internal_transfer.is.null,is_internal_transfer.eq.false')
+    .or('is_no_invoice.is.null,is_no_invoice.eq.false')
 
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 })
 
@@ -101,6 +102,7 @@ export async function POST() {
     .eq('type', 'expense')
     .in('status', ['unmatched', 'pending_review'])
     .or('is_internal_transfer.is.null,is_internal_transfer.eq.false')
+    .or('is_no_invoice.is.null,is_no_invoice.eq.false')
 
   if (expenseTxErr) return NextResponse.json({ error: expenseTxErr.message }, { status: 500 })
 

@@ -143,6 +143,52 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
+  if (body.action === 'mark_no_invoice') {
+    // Označit jako platbu bez faktury (nájem, daně, převody státu...) — modré zvýraznění
+    const { data: existing } = await supabase
+      .from('bank_transactions')
+      .select('matched_invoice_id, matched_expense_invoice_id')
+      .eq('id', params.id)
+      .single()
+
+    if (existing?.matched_invoice_id) {
+      await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
+    }
+    if (existing?.matched_expense_invoice_id) {
+      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+    }
+
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({
+        is_no_invoice: true,
+        status: 'ignored',
+        matched_invoice_id: null,
+        matched_expense_invoice_id: null,
+        match_zone: null,
+        match_method: 'Bez faktury',
+        match_confidence: 0,
+      })
+      .eq('id', params.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'unmark_no_invoice') {
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({
+        is_no_invoice: false,
+        status: 'unmatched',
+        match_method: null,
+      })
+      .eq('id', params.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   if (body.action === 'unmark_internal_transfer') {
     const { error } = await supabase
       .from('bank_transactions')
