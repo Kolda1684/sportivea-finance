@@ -77,6 +77,28 @@ interface ScoredCandidate {
   numberMatch: boolean
   amountDiffRatio: number
   amountDiffAbs: number
+  vatVariant: 'as_is' | 'plus_vat' | 'minus_vat'  // jaká varianta DPH dala nejlepší shodu
+}
+
+// DPH pojistka: vyzkouší 3 varianty (kandidátní částka, ×1.21, ÷1.21) a vrátí nejlepší
+function amountDiff(txCzk: number, candAmount: number): { diffAbs: number; diffRatio: number; variant: 'as_is' | 'plus_vat' | 'minus_vat' } {
+  const variants: { value: number; variant: 'as_is' | 'plus_vat' | 'minus_vat' }[] = [
+    { value: candAmount, variant: 'as_is' },
+    { value: candAmount * 1.21, variant: 'plus_vat' },
+    { value: candAmount / 1.21, variant: 'minus_vat' },
+  ]
+  let best: { diffAbs: number; diffRatio: number; variant: 'as_is' | 'plus_vat' | 'minus_vat' } = {
+    diffAbs: Infinity, diffRatio: 1, variant: 'as_is',
+  }
+  for (const v of variants) {
+    if (v.value <= 0) continue
+    const diffAbs = Math.abs(txCzk - v.value)
+    const diffRatio = diffAbs / v.value
+    if (diffRatio < best.diffRatio) {
+      best = { diffAbs, diffRatio, variant: v.variant }
+    }
+  }
+  return best
 }
 
 function differenceInDays(dateA: string | Date, dateB: string | Date): number {
@@ -149,13 +171,14 @@ function scoreCandidate(tx: DbTransaction, txCzk: number, cand: Candidate): Scor
   }
   if (numberMatch) score += 40
 
-  // Částka — nejdůležitější měkký signál
-  const amountDiffAbs = Math.abs(txCzk - cand.amountCzk)
-  const amountDiffRatio = cand.amountCzk > 0 ? amountDiffAbs / cand.amountCzk : 1
+  // Částka — nejdůležitější měkký signál; zkusíme i DPH varianty
+  const { diffAbs: amountDiffAbs, diffRatio: amountDiffRatio, variant: vatVariant } = amountDiff(txCzk, cand.amountCzk)
   if (amountDiffAbs <= 1 || amountDiffRatio <= 0.005) score += 30
   else if (amountDiffRatio <= 0.03) score += 24
   else if (amountDiffRatio <= 0.05) score += 15
   else if (amountDiffRatio <= 0.1) score += 6
+  // Lehká penalizace, když matchnul jen díky DPH přepočtu — pořád zachytíme, ale s menší jistotou
+  if (vatVariant !== 'as_is') score -= 4
 
   // Shoda názvu protistrany
   const txText = normalize(`${tx.counterparty_name ?? ''} ${tx.message ?? ''}`)
@@ -172,7 +195,7 @@ function scoreCandidate(tx: DbTransaction, txCzk: number, cand: Candidate): Scor
     score += Math.max(0, 10 - daysDiff * 0.4)
   }
 
-  return { id: cand.id, score, vsMatch, numberMatch, amountDiffRatio, amountDiffAbs }
+  return { id: cand.id, score, vsMatch, numberMatch, amountDiffRatio, amountDiffAbs, vatVariant }
 }
 
 function decide(scored: ScoredCandidate[]): MatchResult {
@@ -187,14 +210,17 @@ function decide(scored: ScoredCandidate[]): MatchResult {
   const margin = best.score - (second?.score ?? 0)
 
   // AUTO — jen tvrdý identifikátor (VS / číslo dokladu) + sedící částka + jednoznačnost
+  const vatNote = (v: ScoredCandidate) =>
+    v.vatVariant === 'plus_vat' ? ' (faktura uložená bez DPH)' :
+    v.vatVariant === 'minus_vat' ? ' (klient zaplatil jen základ)' : ''
   if (best.vsMatch && best.amountDiffRatio <= AUTO_AMOUNT_TOLERANCE) {
     const otherVsMatch = scored.slice(1).some(s => s.vsMatch)
     if (!otherVsMatch) {
-      return { invoiceId: best.id, confidence: 92, zone: 'auto', method: 'VS + částka ±3 %', suggestions }
+      return { invoiceId: best.id, confidence: 92, zone: 'auto', method: `VS + částka ±3 %${vatNote(best)}`, suggestions }
     }
   }
   if (best.numberMatch && best.amountDiffRatio <= AUTO_AMOUNT_TOLERANCE && margin >= 10) {
-    return { invoiceId: best.id, confidence: 88, zone: 'auto', method: 'Číslo dokladu v platbě + částka ±3 %', suggestions }
+    return { invoiceId: best.id, confidence: 88, zone: 'auto', method: `Číslo dokladu v platbě + částka ±3 %${vatNote(best)}`, suggestions }
   }
 
   // SUGGEST — tvrdý identifikátor s nesedící částkou, nebo silná kombinace měkkých signálů

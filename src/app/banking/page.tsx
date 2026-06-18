@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2 } from 'lucide-react'
+import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2, Zap, Sparkles, Check, ArrowLeftRight, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,9 @@ interface BankTx {
   account_id: string | null
   matched_invoice_id: string | null
   matched_expense_invoice_id: string | null
+  match_confidence: number | null
+  match_method: string | null
+  is_internal_transfer: boolean | null
   invoices?: { number: string; subject_name: string | null } | null
   expense_invoices?: { supplier_name: string | null; variable_symbol: string | null; note: string | null } | null
 }
@@ -134,6 +137,12 @@ export default function BankingPage() {
   // Modals
   const [showAccountsModal, setShowAccountsModal] = useState(false)
   const [showAddTxModal, setShowAddTxModal] = useState(false)
+
+  // Párování — run state + pending review panel
+  const [matchRunning, setMatchRunning] = useState<'auto' | 'ai' | null>(null)
+  const [matchResult, setMatchResult] = useState<string | null>(null)
+  const [pendingExpanded, setPendingExpanded] = useState(true)
+  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -268,6 +277,52 @@ export default function BankingPage() {
     if (Array.isArray(data)) setAccounts(data)
   }
 
+  async function runMatching(kind: 'auto' | 'ai') {
+    setMatchRunning(kind)
+    setMatchResult(null)
+    try {
+      const res = await fetch(kind === 'auto' ? '/api/banking/match' : '/api/banking/match-ai', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setMatchResult(`❌ ${data.error ?? 'Selhalo'}`)
+      } else {
+        const summary = kind === 'auto'
+          ? `✓ Příjmy ${data.income?.auto ?? 0} auto / ${data.income?.suggest ?? 0} suggest · Výdaje ${data.expense?.auto ?? 0} / ${data.expense?.suggest ?? 0}`
+          : `✓ AI prošla ${data.total ?? 0} transakcí (${data.input_tokens ?? 0} → ${data.output_tokens ?? 0} tokenů)`
+        setMatchResult(summary)
+        await load()
+      }
+    } catch (e) {
+      setMatchResult(`❌ ${e instanceof Error ? e.message : 'Chyba'}`)
+    } finally {
+      setMatchRunning(null)
+    }
+  }
+
+  async function bulkAction(action: 'approve' | 'reject') {
+    const ids = Array.from(selectedPending)
+    if (ids.length === 0) return
+    const res = await fetch('/api/banking/match/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx_ids: ids, action }),
+    })
+    if (res.ok) {
+      setSelectedPending(new Set())
+      await load()
+    }
+  }
+
+  async function markInternalTransfer(txId: string) {
+    await fetch(`/api/banking/transactions/${txId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_internal_transfer' }),
+    })
+    closePicker()
+    await load()
+  }
+
   async function addManualTransaction(form: {
     date: string; type: 'income' | 'expense'; amount: number;
     note: string; counterparty_name: string; variable_symbol: string;
@@ -328,6 +383,24 @@ export default function BankingPage() {
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button
+            onClick={() => runMatching('auto')}
+            disabled={matchRunning !== null}
+            className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
+            title="Spustit pravidlové párování"
+          >
+            {matchRunning === 'auto' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            Spustit párování
+          </button>
+          <button
+            onClick={() => runMatching('ai')}
+            disabled={matchRunning !== null}
+            className="flex items-center gap-2 border border-purple-300 text-purple-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-purple-50 disabled:opacity-60 transition-colors"
+            title="AI fallback pro nesnadné případy"
+          >
+            {matchRunning === 'ai' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            AI pomoc
+          </button>
+          <button
             onClick={() => setShowAccountsModal(true)}
             className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
             title="Spravovat účty"
@@ -345,6 +418,18 @@ export default function BankingPage() {
           </button>
         </div>
       </div>
+
+      {matchResult && (
+        <div className={cn(
+          'mt-3 rounded-lg border p-3 flex items-center gap-2 text-sm',
+          matchResult.startsWith('✓') ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'
+        )}>
+          <span className="flex-1">{matchResult}</span>
+          <button onClick={() => setMatchResult(null)} className="text-gray-400 hover:text-gray-600">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Účet tabs */}
       {accounts.length > 0 && (
@@ -375,6 +460,105 @@ export default function BankingPage() {
           )}
         </div>
       )}
+
+      {!loading && (() => {
+        const pendingTxs = txs.filter(t =>
+          t.account_id === selectedId
+          && t.status === 'pending_review'
+          && t.date.startsWith(String(yearFilter))
+        )
+        if (pendingTxs.length === 0) return null
+
+        const selectedCount = pendingTxs.filter(t => selectedPending.has(t.id)).length
+        const allSelected = selectedCount === pendingTxs.length && pendingTxs.length > 0
+
+        function toggleAll() {
+          if (allSelected) setSelectedPending(new Set())
+          else setSelectedPending(new Set(pendingTxs.map(t => t.id)))
+        }
+        function toggleOne(id: string) {
+          setSelectedPending(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id); else next.add(id)
+            return next
+          })
+        }
+
+        return (
+          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setPendingExpanded(p => !p)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-yellow-100/50 transition-colors"
+            >
+              <span className="text-sm font-semibold text-yellow-900">
+                {pendingTxs.length} návrh{pendingTxs.length === 1 ? '' : pendingTxs.length < 5 ? 'y' : 'ů'} ke schválení
+              </span>
+              <div className="flex items-center gap-2">
+                {selectedCount > 0 && (
+                  <span className="text-xs text-yellow-700">{selectedCount} vybráno</span>
+                )}
+                {pendingExpanded ? <ChevronUp className="h-4 w-4 text-yellow-700" /> : <ChevronDown className="h-4 w-4 text-yellow-700" />}
+              </div>
+            </button>
+            {pendingExpanded && (
+              <div className="border-t border-yellow-200">
+                <div className="flex items-center justify-between px-4 py-2 bg-white/40 border-b border-yellow-200">
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
+                    <span>Vybrat vše</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => bulkAction('approve')}
+                      disabled={selectedCount === 0}
+                      className="flex items-center gap-1.5 bg-green-600 text-white text-xs px-3 py-1.5 rounded-md font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+                    >
+                      <Check className="h-3 w-3" /> Schválit ({selectedCount})
+                    </button>
+                    <button
+                      onClick={() => bulkAction('reject')}
+                      disabled={selectedCount === 0}
+                      className="flex items-center gap-1.5 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded-md font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                    >
+                      <X className="h-3 w-3" /> Odmítnout
+                    </button>
+                  </div>
+                </div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {pendingTxs.map(tx => {
+                      const amt = Math.abs(tx.amount_czk ?? tx.amount)
+                      const docNum = getDocNumber(tx)
+                      const desc = getDescription(tx)
+                      const isSelected = selectedPending.has(tx.id)
+                      return (
+                        <tr key={tx.id} className={cn('border-b last:border-b-0 hover:bg-white/60', isSelected && 'bg-yellow-100/40')}>
+                          <td className="px-3 py-2 w-8">
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleOne(tx.id)} className="rounded" />
+                          </td>
+                          <td className="px-2 py-2 text-gray-500 tabular-nums w-16">{fmtDate(tx.date)}</td>
+                          <td className="px-2 py-2 text-blue-700 font-medium w-44 truncate">{docNum ?? '—'}</td>
+                          <td className="px-2 py-2 text-gray-800">{desc}</td>
+                          <td className="px-2 py-2 text-right tabular-nums font-medium">
+                            <span className={tx.type === 'income' ? 'text-green-700' : 'text-red-600'}>
+                              {fmtNum(amt)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 w-20 text-right">
+                            <span className="text-xs text-yellow-700">
+                              {tx.match_confidence ?? 0}%
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -612,16 +796,24 @@ export default function BankingPage() {
                 )
               })()}
             </div>
-            {(pickerTx?.matched_invoice_id || pickerTx?.matched_expense_invoice_id) && (
-              <div className="border-t px-3 py-2">
+            <div className="border-t px-3 py-2 space-y-1">
+              <button
+                onClick={() => markInternalTransfer(pickerTxId)}
+                className="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-900 w-full text-left px-1 py-1 hover:bg-gray-50 rounded transition-colors"
+                title="Označit jako vlastní převod — nevyžaduje fakturu"
+              >
+                <ArrowLeftRight className="h-3 w-3" />
+                Vlastní převod (skrýt z fronty)
+              </button>
+              {(pickerTx?.matched_invoice_id || pickerTx?.matched_expense_invoice_id) && (
                 <button
                   onClick={() => { handleRemoveMatch(pickerTxId); closePicker() }}
                   className="text-xs text-red-500 hover:text-red-700 w-full text-center py-0.5"
                 >
                   Odebrat párování
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </>
       )}

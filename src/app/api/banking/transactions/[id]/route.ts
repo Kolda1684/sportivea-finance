@@ -111,6 +111,52 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
+  if (body.action === 'mark_internal_transfer') {
+    // Označit jako vlastní převod — vypadne z matching fronty, případně odpáruje
+    const { data: existing } = await supabase
+      .from('bank_transactions')
+      .select('matched_invoice_id, matched_expense_invoice_id')
+      .eq('id', params.id)
+      .single()
+
+    if (existing?.matched_invoice_id) {
+      await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
+    }
+    if (existing?.matched_expense_invoice_id) {
+      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+    }
+
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({
+        is_internal_transfer: true,
+        status: 'ignored',
+        matched_invoice_id: null,
+        matched_expense_invoice_id: null,
+        match_zone: null,
+        match_method: 'Vlastní převod',
+        match_confidence: 0,
+      })
+      .eq('id', params.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'unmark_internal_transfer') {
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({
+        is_internal_transfer: false,
+        status: 'unmatched',
+        match_method: null,
+      })
+      .eq('id', params.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   const allowed = ['counterparty_name', 'message', 'note']
   const update: Record<string, string | null> = {}
   for (const key of allowed) {

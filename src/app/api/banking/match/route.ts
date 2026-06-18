@@ -20,12 +20,13 @@ export async function POST() {
     }
   }
 
-  // Načti nespárované příjmové transakce
+  // Načti nespárované příjmové transakce (mimo označené jako vlastní převod)
   const { data: incomeTxs, error: txErr } = await supabase
     .from('bank_transactions')
     .select('*')
     .eq('type', 'income')
     .in('status', ['unmatched', 'pending_review'])
+    .or('is_internal_transfer.is.null,is_internal_transfer.eq.false')
 
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 })
 
@@ -99,6 +100,7 @@ export async function POST() {
     .select('*')
     .eq('type', 'expense')
     .in('status', ['unmatched', 'pending_review'])
+    .or('is_internal_transfer.is.null,is_internal_transfer.eq.false')
 
   if (expenseTxErr) return NextResponse.json({ error: expenseTxErr.message }, { status: 500 })
 
