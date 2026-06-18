@@ -176,8 +176,8 @@ export default function BankingPage() {
     else bal -= amt
     return { ...tx, runningBalance: bal }
   })
-  // Newest first
-  const rows = [...withBalances].reverse()
+  // Oldest first — od 1. ledna dolů
+  const rows = withBalances
   const currentBalance = withBalances.length > 0 ? withBalances[withBalances.length - 1].runningBalance : startingBal
   const unmatched = rows.filter(r => r.status === 'unmatched').length
 
@@ -394,17 +394,37 @@ export default function BankingPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {/* Aktuální stav — nahoře */}
-              <tr className="bg-gray-900 text-white">
-                <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">BV</td>
-                <td className="px-3 py-2.5 font-bold text-gray-300 text-xs">x</td>
-                <td className="px-3 py-2.5 font-bold">Aktuální stav</td>
-                <td />
-                <td />
-                <td className="px-3 py-2.5 text-right font-bold tabular-nums">
-                  {fmtNum(currentBalance)}
-                </td>
-              </tr>
+              {/* Počáteční stav — nahoře (1. ledna) */}
+              {rows.length > 0 && (
+                <tr className="bg-gray-50/60 border-b-2 border-gray-200">
+                  <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">BV</td>
+                  <td className="px-3 py-2.5 font-bold text-gray-600 text-xs">x</td>
+                  <td className="px-3 py-2.5 font-bold text-gray-800">Počáteční stav</td>
+                  <td />
+                  <td />
+                  <td className="px-3 py-2.5 text-right font-bold text-gray-900 tabular-nums">
+                    {editingBalance ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        value={selectedId ? (balanceOverrides[selectedId] ?? Number(currentAccount?.starting_balance ?? 0)) : 0}
+                        onChange={e => selectedId && setBalanceOverrides(prev => ({ ...prev, [selectedId]: Number(e.target.value) }))}
+                        onBlur={() => setEditingBalance(false)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBalance(false) }}
+                        className="w-32 text-right border rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setEditingBalance(true)}
+                        className="hover:bg-gray-200 rounded px-1 tabular-nums"
+                        title="Klikni pro úpravu počátečního zůstatku"
+                      >
+                        {fmtNum(startingBal)}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )}
 
               {rows.length === 0 && (
                 <tr>
@@ -491,34 +511,16 @@ export default function BankingPage() {
                 )
               })}
 
-              {/* Počáteční stav — dole */}
+              {/* Aktuální stav — dole (po všech transakcích) */}
               {rows.length > 0 && (
-                <tr className="bg-gray-50/60 border-t-2 border-gray-200">
+                <tr className="bg-gray-900 text-white border-t-2 border-gray-700">
                   <td className="px-3 py-2.5 text-xs text-gray-400 font-medium">BV</td>
-                  <td className="px-3 py-2.5 font-bold text-gray-600 text-xs">x</td>
-                  <td className="px-3 py-2.5 font-bold text-gray-800">Počáteční stav</td>
+                  <td className="px-3 py-2.5 font-bold text-gray-300 text-xs">x</td>
+                  <td className="px-3 py-2.5 font-bold">Aktuální stav</td>
                   <td />
                   <td />
-                  <td className="px-3 py-2.5 text-right font-bold text-gray-900 tabular-nums">
-                    {editingBalance ? (
-                      <input
-                        autoFocus
-                        type="number"
-                        value={selectedId ? (balanceOverrides[selectedId] ?? Number(currentAccount?.starting_balance ?? 0)) : 0}
-                        onChange={e => selectedId && setBalanceOverrides(prev => ({ ...prev, [selectedId]: Number(e.target.value) }))}
-                        onBlur={() => setEditingBalance(false)}
-                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBalance(false) }}
-                        className="w-32 text-right border rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => setEditingBalance(true)}
-                        className="hover:bg-gray-200 rounded px-1 tabular-nums"
-                        title="Klikni pro úpravu počátečního zůstatku"
-                      >
-                        {fmtNum(startingBal)}
-                      </button>
-                    )}
+                  <td className="px-3 py-2.5 text-right font-bold tabular-nums">
+                    {fmtNum(currentBalance)}
                   </td>
                 </tr>
               )}
