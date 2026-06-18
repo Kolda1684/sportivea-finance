@@ -51,7 +51,27 @@ Pravidla:
 - "supplier_name": název firmy dodavatele přesně jak je na faktuře
 - "supplier_ico": IČO dodavatele (8 číslic, bez mezer)
 - "supplier_dic": DIČ dodavatele (s prefixem CZ/SK atd.)
-- "items": pole položek faktury — každá položka MUSÍ mít name (nikdy prázdný string ani null)
+
+POLOŽKY (items) — KLÍČOVÉ:
+- "items": jen skutečné nakupované položky/služby. NIKDY nepřidávej souhrnné
+  řádky jako "Mezisoučet", "DPH 21 %", "Zaokrouhlení", "Celkem s DPH",
+  "K úhradě", "Doprava 0 Kč" atd. Ty patří do total_*, ne do items.
+- "items[].unit_price" MUSÍ být finální cena za jednotku PO VŠECH SLEVÁCH
+  bez DPH. Pokud má faktura sloupec "SLEVA" nebo "% sleva" nebo "Cena po slevě",
+  použij hodnotu po slevě, ne původní ceník!
+- "items[].vat_rate" = sazba DPH platná pro tu položku (číslo 0, 12 nebo 21).
+- Kontrola: suma items[i].quantity × items[i].unit_price × (1 + vat_rate/100)
+  MUSÍ odpovídat total_with_vat z faktury (= "Celkem k úhradě"). Pokud nesedí,
+  nejčastější chyba je ignorovaná sleva — projdi sloupec SLEVA znovu.
+
+TOTÁLY:
+- "total_with_vat" = "Celkem k úhradě" / "Total to pay" / finální částka.
+  Vždy s DPH, po zaokrouhlení. Toto je SUMA kterou klient skutečně zaplatí.
+- "total_without_vat" = základ bez DPH (suma cen po slevě).
+- "vat_amount" = částka DPH dohromady (může být součet více sazeb).
+
+DUZP/PŘIJETÍ:
+- "received_on" = ponech NULL (doplníme datem vystavení automaticky).
 
 {
   "document_type": "invoice",
@@ -216,7 +236,8 @@ function validateExtracted(raw: unknown): { data: ExtractedInvoice; warnings: Oc
 
   const issued_on = asDate(r.issued_on, 'issued_on')
   const taxable_supply_date = asDate(r.taxable_supply_date, 'taxable_supply_date') ?? issued_on
-  const received_on = asDate(r.received_on, 'received_on') ?? new Date().toISOString().slice(0, 10)
+  // Přijat = datum vystavení (požadavek: doklady evidujeme k DUZP, ne k datu příjmu)
+  const received_on = issued_on ?? asDate(r.received_on, 'received_on') ?? new Date().toISOString().slice(0, 10)
   const due_on = asDate(r.due_on, 'due_on')
 
   const currency = (() => {
