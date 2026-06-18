@@ -54,13 +54,15 @@ function parseCzDate(s: string | undefined, year: number): string | null {
 
 function parseRow(cols: string[], year: number): ParsedEntry[] {
   const entries: ParsedEntry[] = []
-  // Účet 1: cols 1..7  (s extra prázdným sloupcem 3)
-  // Účet 2: cols 9..14
-  // Účet 3: cols 16..21
-  // Účet 4: cols 23..28
+  // Layout (Excel export Finančního deníku):
+  // Účet 1: cols 0..7  — má extra prázdný sloupec mezi # a datem (col 1 = blank)
+  //   0=#, 1=blank, 2=datum, 3=Č.dokl., 4=Popis, 5=Příjmy, 6=Výdaje, 7=Zůstatek
+  // Účet 2: cols 8..14  — 0=#, 9=datum, 10=Č.dokl., 11=Popis, 12=Příjmy, 13=Výdaje, 14=Zůstatek
+  // Účet 3: cols 15..21 — Pokladna, stejné jako účet 2
+  // Účet 4: cols 22..28 — stejné jako účet 2
   const slots: { slot: number; date: number; doc: number; desc: number; income: number; expense: number }[] = [
-    { slot: 1, date: 1, doc: 2, desc: 4, income: 5, expense: 6 },
-    { slot: 2, date: 9, doc: 10, desc: 11, income: 12, expense: 13 },
+    { slot: 1, date: 2,  doc: 3,  desc: 4,  income: 5,  expense: 6  },
+    { slot: 2, date: 9,  doc: 10, desc: 11, income: 12, expense: 13 },
     { slot: 3, date: 16, doc: 17, desc: 18, income: 19, expense: 20 },
     { slot: 4, date: 23, doc: 24, desc: 25, income: 26, expense: 27 },
   ]
@@ -98,8 +100,8 @@ function extractDigits(s: string): string {
   return s.replace(/\D/g, '')
 }
 
-// Naivní CSV parser — neumí escapované newliny v poli, ale zvládá quoted celly
-function parseCsvLine(line: string): string[] {
+// Naivní CSV parser — podporuje libovolný oddělovač, quoted cells, escape ""
+function parseCsvLine(line: string, sep: string): string[] {
   const out: string[] = []
   let cur = ''
   let inQuotes = false
@@ -108,7 +110,7 @@ function parseCsvLine(line: string): string[] {
     if (c === '"') {
       if (inQuotes && line[i + 1] === '"') { cur += '"'; i++ }
       else inQuotes = !inQuotes
-    } else if (c === ',' && !inQuotes) {
+    } else if (c === sep && !inQuotes) {
       out.push(cur); cur = ''
     } else {
       cur += c
@@ -118,6 +120,14 @@ function parseCsvLine(line: string): string[] {
   return out
 }
 
+// Auto-detect oddělovač podle počtu výskytů v prvních řádcích (CSV vs European CSV)
+function detectSeparator(lines: string[]): string {
+  const sample = lines.slice(0, 10).join('\n')
+  const commas = (sample.match(/,/g) ?? []).length
+  const semis = (sample.match(/;/g) ?? []).length
+  return semis > commas ? ';' : ','
+}
+
 export async function POST(req: NextRequest) {
   const form = await req.formData()
   const file = form.get('file') as File | null
@@ -125,17 +135,17 @@ export async function POST(req: NextRequest) {
 
   const text = await file.text()
   const lines = text.split(/\r?\n/)
+  const sep = detectSeparator(lines)
 
-  // Najdi rok z hlavičky (řádek: "Rok :,,2024,...")
+  // Rok z názvu souboru (Excel header bývá zastaralý — "Rok: 2024" zatímco data jsou 2026).
+  // Fallback: aktuální rok.
   let year = new Date().getFullYear()
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const m = lines[i].match(/Rok\s*:?\s*,+\s*(\d{4})/)
-    if (m) { year = parseInt(m[1]); break }
-  }
+  const filenameYear = file.name.match(/(20\d{2})/)
+  if (filenameYear) year = parseInt(filenameYear[1])
 
   const allEntries: ParsedEntry[] = []
   for (let i = 3; i < lines.length; i++) {
-    const cols = parseCsvLine(lines[i])
+    const cols = parseCsvLine(lines[i], sep)
     if (cols.length < 10) continue
     allEntries.push(...parseRow(cols, year))
   }
