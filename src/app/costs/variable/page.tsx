@@ -275,20 +275,24 @@ export default function VariableCostsPage() {
         </div>
       ) : (
         <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Jméno', 'Klient', 'Task', 'Typ', 'Datum', 'Hodiny', 'Cena', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {['Jméno', 'Klient', 'Task', 'Typ', 'Datum', 'Hodiny', 'Cena', ''].map((h, i, arr) => (
+                  <th key={h || i} className={cn(
+                    'px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide',
+                    i === 5 || i === 6 ? 'text-right' : 'text-left',
+                    i < arr.length - 1 && 'border-r border-gray-100',
+                  )}>
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {costs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
                     <Upload className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                     <p>Žádné záznamy — importuj CSV z Google Sheets</p>
                     <button
@@ -302,29 +306,29 @@ export default function VariableCostsPage() {
               ) : costs.map((cost) => {
                 const missingClient = !cost.client
                 return (
-                  <tr key={cost.id} className={cn('transition-colors group', missingClient ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50')}>
-                    <td className="px-4 py-2.5 font-medium">{cost.team_member ?? '—'}</td>
-                    <td className="px-4 py-2.5">
+                  <tr key={cost.id} className={cn('transition-colors group', missingClient ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/70')}>
+                    <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">{cost.team_member ?? '—'}</td>
+                    <td className="px-3 py-2 border-r border-gray-100">
                       {missingClient ? (
                         <span className="inline-flex items-center gap-1 text-red-400 text-xs font-medium">
                           <AlertIcon className="h-3 w-3" />
                           chybí klient
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">{cost.client}</span>
+                        <span className="text-gray-600">{cost.client}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 max-w-[200px] truncate" title={cost.task_name ?? ''}>{cost.task_name ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{cost.task_type ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{formatDate(cost.date)}</td>
-                    <td className="px-4 py-2.5 text-right">{cost.hours ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right font-bold text-red-600">
+                    <td className="px-3 py-2 max-w-[220px] truncate text-gray-900 border-r border-gray-100" title={cost.task_name ?? ''}>{cost.task_name ?? '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs border-r border-gray-100">{cost.task_type ?? '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 tabular-nums border-r border-gray-100">{formatDate(cost.date)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums border-r border-gray-100">{cost.hours ?? '—'}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums border-r border-gray-100">
                       {cost.price != null ? formatCZK(cost.price) : '—'}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-3 py-2">
                       <button
                         onClick={() => setEditCost(cost)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200 text-muted-foreground hover:text-gray-700"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"
                         title="Upravit"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -335,11 +339,11 @@ export default function VariableCostsPage() {
               })}
             </tbody>
             {costs.length > 0 && (
-              <tfoot className="bg-gray-50 border-t">
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                 <tr>
-                  <td colSpan={5} className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">CELKEM</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-sm">{totalHours} h</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-red-600 text-sm">{formatCZK(totalPrice)}</td>
+                  <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">CELKEM</td>
+                  <td className="px-3 py-2.5 text-right font-bold tabular-nums border-r border-gray-100">{totalHours} h</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(totalPrice)}</td>
                   <td />
                 </tr>
               </tfoot>

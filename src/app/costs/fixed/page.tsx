@@ -5,6 +5,7 @@ import { Plus, Pencil, Power } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCZK } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { FixedCost } from '@/types'
 
 export default function FixedCostsPage() {
@@ -52,34 +53,36 @@ export default function FixedCostsPage() {
         </div>
       ) : (
         <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Název', 'Měsíční částka', 'Poznámka', 'Aktivní', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {h}
-                  </th>
+                {['Název', 'Měsíční částka', 'Poznámka', 'Aktivní', ''].map((h, i, arr) => (
+                  <th key={h || i} className={cn(
+                    'px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide',
+                    i === 1 ? 'text-right' : 'text-left',
+                    i < arr.length - 1 && 'border-r border-gray-100',
+                  )}>{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {costs.map((cost) => (
-                <tr key={cost.id} className={`hover:bg-gray-50 transition-colors ${!cost.active ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3 font-medium">{cost.name}</td>
-                  <td className="px-4 py-3 font-bold text-red-600">{formatCZK(cost.amount)}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{cost.note ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cost.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                <tr key={cost.id} className={cn('hover:bg-gray-50/70 transition-colors group', !cost.active && 'opacity-50')}>
+                  <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">{cost.name}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(cost.amount)}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs border-r border-gray-100">{cost.note ?? '—'}</td>
+                  <td className="px-3 py-2 border-r border-gray-100">
+                    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', cost.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
                       {cost.active ? 'Aktivní' : 'Neaktivní'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 flex gap-2">
-                    <button className="p-1 text-muted-foreground hover:text-primary-900 transition-colors">
+                  <td className="px-3 py-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button className="p-1 text-gray-400 hover:text-primary-900 transition-colors">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => toggleActive(cost)}
-                      className="p-1 text-muted-foreground hover:text-primary-900 transition-colors"
+                      className="p-1 text-gray-400 hover:text-primary-900 transition-colors"
                       title={cost.active ? 'Deaktivovat' : 'Aktivovat'}
                     >
                       <Power className="h-3.5 w-3.5" />
@@ -88,10 +91,10 @@ export default function FixedCostsPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot className="bg-gray-50 border-t">
+            <tfoot className="bg-gray-50 border-t-2 border-gray-200">
               <tr>
-                <td className="px-4 py-3 font-bold text-sm">Celkem (aktivní)</td>
-                <td className="px-4 py-3 font-bold text-red-600 text-base">{formatCZK(total)}</td>
+                <td className="px-3 py-2.5 font-semibold text-xs text-gray-500 uppercase tracking-wide border-r border-gray-100">Celkem (aktivní)</td>
+                <td className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(total)}</td>
                 <td colSpan={3} />
               </tr>
             </tfoot>

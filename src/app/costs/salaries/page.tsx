@@ -190,28 +190,28 @@ export default function SalariesPage() {
         </div>
       ) : (
         <div className="rounded-xl border bg-white overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide w-[140px]">
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[140px] border-r border-gray-100">
                   Měsíc
                 </th>
                 {owners.map(o => (
-                  <th key={o} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <th key={o} className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">
                     {o}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Celkem
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {months.map(month => {
                 const isCurrent = month === getCurrentMonth()
                 return (
-                  <tr key={month} className={`hover:bg-gray-50 transition-colors ${isCurrent ? 'bg-blue-50/40' : ''}`}>
-                    <td className="px-4 py-2 font-medium capitalize whitespace-nowrap">
+                  <tr key={month} className={`hover:bg-gray-50/70 transition-colors ${isCurrent ? 'bg-blue-50/40' : ''}`}>
+                    <td className="px-3 py-2 font-medium capitalize whitespace-nowrap border-r border-gray-100">
                       {formatMonth(month)}
                       {isCurrent && <span className="ml-2 text-[10px] uppercase font-semibold text-blue-600">teď</span>}
                     </td>
@@ -220,7 +220,7 @@ export default function SalariesPage() {
                       const key = `${owner}|${month}`
                       const saving = savingKey === key
                       return (
-                        <td key={key} className="px-2 py-1.5">
+                        <td key={key} className="px-2 py-1.5 border-r border-gray-100">
                           <div className="flex items-center gap-1.5 justify-end">
                             <input
                               type="number"
@@ -261,33 +261,33 @@ export default function SalariesPage() {
                         </td>
                       )
                     })}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-red-600">
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-red-600">
                       {totalsByMonth[month] > 0 ? formatCZK(totalsByMonth[month]) : '—'}
                     </td>
                   </tr>
                 )
               })}
             </tbody>
-            <tfoot className="bg-gray-50 border-t">
+            <tfoot className="bg-gray-50 border-t-2 border-gray-200">
               <tr>
-                <td className="px-4 py-3 font-bold text-sm">Celkem {year}</td>
+                <td className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-gray-500 border-r border-gray-100">Celkem {year}</td>
                 {owners.map(o => (
-                  <td key={o} className="px-4 py-3 text-right font-bold text-red-600 tabular-nums">
+                  <td key={o} className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">
                     {formatCZK(totalsByOwner[o]?.total ?? 0)}
                   </td>
                 ))}
-                <td className="px-4 py-3 text-right font-bold text-red-700 text-base tabular-nums">
+                <td className="px-3 py-2.5 text-right font-bold text-red-700 tabular-nums">
                   {formatCZK(grandTotal)}
                 </td>
               </tr>
-              <tr className="text-xs text-muted-foreground">
-                <td className="px-4 pb-2">z toho vyplaceno</td>
+              <tr className="text-xs text-gray-500">
+                <td className="px-3 pb-2 border-r border-gray-100">z toho vyplaceno</td>
                 {owners.map(o => (
-                  <td key={o} className="px-4 pb-2 text-right tabular-nums">
+                  <td key={o} className="px-3 pb-2 text-right tabular-nums border-r border-gray-100">
                     {formatCZK(totalsByOwner[o]?.paid ?? 0)}
                   </td>
                 ))}
-                <td className="px-4 pb-2 text-right tabular-nums">{formatCZK(paidTotal)}</td>
+                <td className="px-3 pb-2 text-right tabular-nums">{formatCZK(paidTotal)}</td>
               </tr>
             </tfoot>
           </table>

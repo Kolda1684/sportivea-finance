@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCZK, formatDate, getCurrentMonth, getLastNMonths, formatMonth } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { ExtraCost } from '@/types'
 
 const CATEGORIES = ['software', 'hardware', 'cestování', 'kancelář', 'marketing', 'jiné']
@@ -58,33 +59,44 @@ export default function ExtraCostsPage() {
         </div>
       ) : (
         <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Název', 'Částka', 'Datum', 'Kategorie', 'Poznámka'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">
-                    {h}
-                  </th>
+                {['Název', 'Částka', 'Datum', 'Kategorie', 'Poznámka'].map((h, i, arr) => (
+                  <th key={h || i} className={cn(
+                    'px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide',
+                    i === 1 ? 'text-right' : 'text-left',
+                    i < arr.length - 1 && 'border-r border-gray-100',
+                  )}>{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {costs.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Žádné záznamy</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Žádné záznamy</td></tr>
               ) : costs.map(c => (
-                <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 font-medium">{c.name}</td>
-                  <td className="px-4 py-2.5 font-bold text-red-600">{formatCZK(c.amount)}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{formatDate(c.date)}</td>
-                  <td className="px-4 py-2.5">
+                <tr key={c.id} className="hover:bg-gray-50/70">
+                  <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">{c.name}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(c.amount)}</td>
+                  <td className="px-3 py-2 text-gray-500 tabular-nums border-r border-gray-100">{formatDate(c.date)}</td>
+                  <td className="px-3 py-2 border-r border-gray-100">
                     {c.category && (
                       <span className="bg-gray-100 text-gray-700 rounded-full px-2 py-0.5 text-xs">{c.category}</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-muted-foreground text-xs">{c.note ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{c.note ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
+            {costs.length > 0 && (
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                <tr>
+                  <td className="px-3 py-2.5 font-semibold text-xs text-gray-500 uppercase tracking-wide border-r border-gray-100">Celkem</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(total)}</td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
