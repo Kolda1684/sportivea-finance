@@ -185,6 +185,15 @@ export interface TaskMapped {
   date: string | null             // Deadline (kdy proběhlo)
   month: string | null
   notion_company_page_ids: string[]
+  status: string | null           // Notion Status (Hotovo / In Progress / …)
+}
+
+// Task se do nákladů dostane až když je Hotovo — jinak není relevantní.
+// (Notion status bývá "Hotovo", případně anglicky "Done".)
+export function isTaskDone(status: string | null): boolean {
+  if (!status) return false
+  const s = status.trim().toLowerCase()
+  return s === 'hotovo' || s === 'done' || s === 'completed' || s === 'dokončeno'
 }
 
 export function mapTask(page: PageObjectResponse): TaskMapped | null {
@@ -229,6 +238,9 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
   // Relace na klienty: property musí být typu relation ("Klient" bývá i rich_text)
   const clientRelation = findProp(props, ['Klient', 'Klienti'], 'relation')
 
+  // Status — status property, fallback rich_text "Stav"
+  const status = getSelect(findProp(props, ['Status', 'Stav'])) ?? getRichText(findProp(props, ['Stav'], 'rich_text'))
+
   return {
     notion_page_id: page.id,
     task_name,
@@ -238,14 +250,31 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
     date: getDate(findProp(props, ['Deadline', 'Due Date'], 'date')),
     month: normalizeMonth(monthRaw),
     notion_company_page_ids: getRelationIds(clientRelation),
+    status,
   }
 }
 
-export async function syncTaskPage(page: PageObjectResponse, teamMember: string): Promise<{ id: string; created: boolean } | null> {
+export async function syncTaskPage(page: PageObjectResponse, teamMember: string): Promise<{ id: string; created: boolean; deleted?: boolean } | null> {
   const mapped = mapTask(page)
   if (!mapped) return null
 
   const supabase = createAdminSupabaseClient()
+
+  const { data: existing } = await supabase
+    .from('variable_costs')
+    .select('id, client')
+    .eq('notion_page_id', mapped.notion_page_id)
+    .maybeSingle()
+
+  // Náklad vzniká až když je task Hotovo. Pokud není (nebo se vrátil z Hotovo zpět),
+  // odstraň případný dřívější záznam, ať nezůstane v nákladech.
+  if (!isTaskDone(mapped.status)) {
+    if (existing) {
+      await supabase.from('variable_costs').delete().eq('id', existing.id)
+      return { id: existing.id, created: false, deleted: true }
+    }
+    return null
+  }
 
   // Resolve client name z Companies tabulky (přes notion_page_id z relation)
   let client_name: string | null = null
@@ -271,14 +300,11 @@ export async function syncTaskPage(page: PageObjectResponse, teamMember: string)
     notion_last_synced: new Date().toISOString(),
   }
 
-  const { data: existing } = await supabase
-    .from('variable_costs')
-    .select('id')
-    .eq('notion_page_id', mapped.notion_page_id)
-    .maybeSingle()
-
   if (existing) {
-    await supabase.from('variable_costs').update(row).eq('id', existing.id)
+    // Klienta z Notionu přepiš jen když ho Notion má — jinak zachovej ručně doplněný.
+    const update: Record<string, unknown> = { ...row }
+    if (client_name == null) delete update.client
+    await supabase.from('variable_costs').update(update).eq('id', existing.id)
     return { id: existing.id, created: false }
   }
 
@@ -323,6 +349,7 @@ export async function bulkSyncTasks(since?: Date): Promise<{ created: number; up
       let c = 0, u = 0
       for (const page of pages) {
         const res = await syncTaskPage(page, emp.team_member)
+        if (res?.deleted) continue
         if (res?.created) c++
         else if (res) u++
       }
@@ -342,6 +369,123 @@ export async function bulkSyncTasks(since?: Date): Promise<{ created: number; up
   }
 
   return { created, updated, total, perEmployee }
+}
+
+// ── Cesťáky → variable_costs (task_type = "Cesťák") ──────────────────────────
+
+const TRAVEL_DB_ID = () => process.env.NOTION_TRAVEL_DB_ID
+
+// Cesťák je relevantní náklad, když je Schváleno nebo Zaplaceno.
+// "Zadáno" = teprve podáno, "Zamítnuto" = zamítnuto → nezapočítávat.
+function isTravelRelevant(status: string | null): boolean {
+  if (!status) return false
+  const s = status.trim().toLowerCase()
+  return s === 'schváleno' || s === 'schvaleno' || s === 'zaplaceno'
+}
+
+export function mapTravel(page: PageObjectResponse): {
+  notion_page_id: string
+  purpose: string
+  route: string | null
+  person: string | null
+  price: number | null
+  date: string | null
+  status: string | null
+} | null {
+  const props = page.properties
+  const purpose = getTitle(findProp(props, ['Účel', 'Ucel', 'Name'], 'title'))
+  if (!purpose) return null
+
+  // Cena: formula, fallback jednorázová cena
+  let price: number | null = null
+  const priceProp = findProp(props, ['Cena'])
+  if (priceProp) {
+    if (priceProp.type === 'number') price = priceProp.number
+    else if (priceProp.type === 'formula' && priceProp.formula.type === 'number') price = priceProp.formula.number
+  }
+  if (price == null) price = getNumber(findProp(props, ['Jednorázová cena', 'Jednorazova cena'], 'number'))
+
+  // Jméno cestujícího — people property
+  let person: string | null = null
+  const personProp = findProp(props, ['Jméno', 'Jmeno'], 'people')
+  if (personProp && personProp.type === 'people') {
+    person = personProp.people.map(p => ('name' in p ? p.name : null)).filter(Boolean).join(', ') || null
+  }
+
+  return {
+    notion_page_id: page.id,
+    purpose,
+    route: getRichText(findProp(props, ['Trasa'], 'rich_text')),
+    person,
+    price,
+    date: getDate(findProp(props, ['Datum', 'Date'], 'date')),
+    status: getSelect(findProp(props, ['Status', 'Stav'])),
+  }
+}
+
+export async function syncTravelPage(page: PageObjectResponse): Promise<{ id: string; created: boolean; deleted?: boolean } | null> {
+  const mapped = mapTravel(page)
+  if (!mapped) return null
+
+  const supabase = createAdminSupabaseClient()
+  const { data: existing } = await supabase
+    .from('variable_costs')
+    .select('id, client')
+    .eq('notion_page_id', mapped.notion_page_id)
+    .maybeSingle()
+
+  if (!isTravelRelevant(mapped.status)) {
+    if (existing) {
+      await supabase.from('variable_costs').delete().eq('id', existing.id)
+      return { id: existing.id, created: false, deleted: true }
+    }
+    return null
+  }
+
+  // Název = účel + trasa (kam se jelo). Klienta Cesťáky nemají → nechává se prázdný
+  // (zvýrazní se žlutě a lze ho doplnit ručně; ruční hodnota se při dalším syncu zachová).
+  const task_name = mapped.route ? `${mapped.purpose} (${mapped.route})` : mapped.purpose
+
+  const row = {
+    task_name,
+    hours: null,
+    price: mapped.price,
+    task_type: 'Cesťák',
+    date: mapped.date,
+    month: mapped.date ? normalizeMonth(mapped.date) : null,
+    team_member: mapped.person,
+    notion_page_id: mapped.notion_page_id,
+    notion_last_synced: new Date().toISOString(),
+  }
+
+  if (existing) {
+    await supabase.from('variable_costs').update(row).eq('id', existing.id)
+    return { id: existing.id, created: false }
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('variable_costs')
+    .insert({ ...row, client: null })
+    .select('id')
+    .single()
+
+  if (error || !inserted) throw new Error(`Insert cesťák selhal: ${error?.message ?? 'unknown'}`)
+  return { id: inserted.id, created: true }
+}
+
+export async function bulkSyncTravel(since?: Date): Promise<{ created: number; updated: number; deleted: number; total: number }> {
+  const dbId = TRAVEL_DB_ID()
+  if (!dbId) throw new Error('Chybí NOTION_TRAVEL_DB_ID')
+
+  const pages = await queryAllPages(dbId, since)
+  let created = 0, updated = 0, deleted = 0
+  for (const page of pages) {
+    const res = await syncTravelPage(page)
+    if (res?.deleted) deleted++
+    else if (res?.created) created++
+    else if (res) updated++
+  }
+  return { created, updated, deleted, total: pages.length }
 }
 
 // Pro webhook: zjistit team_member podle Notion DB ID

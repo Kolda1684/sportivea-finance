@@ -8,31 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { VariableCost } from '@/types'
 
-const TEAM_MEMBERS = ['Adam Onderka', 'Anna Švaralová', 'Daniel Richtr', 'Filip Telenský', 'Jan Pachota', 'Michal Komárek', 'Ondřej Cetkovský', 'Ondřej Kolář', 'Vojtěch Kepka']
-const TASK_TYPES = ['Reels', 'Natáčení', 'Grafika', 'Long-form', 'Story', 'Editing', 'Produkce', 'Jiný']
-const CLIENTS = [
-  'Flashscore',
-  'Slavia',
-  'Fortuna liga žen',
-  'Ironman',
-  'J&T',
-  'Daily',
-  'Martin Remeš - OB',
-  'PBH',
-  'STES',
-  'More Buckets',
-  'Olympijský tým',
-  'PeakSip',
-  'PRQNO',
-  'RTR',
-  'Sportegy',
-  'Sportivea',
-  'Jurco',
-  'drinkr',
-  'Jonáš Kolomazník',
-  'Nikoleta Jíchová',
-  'Playbook House',
-]
+const TEAM_MEMBERS = ['Adam Onderka', 'Anna Švaralová', 'Daniel Richtr', 'Eliška', 'Filip Telenský', 'Jan Pachota', 'Kuba Král', 'Martin Aust', 'Matyáš Sokol', 'Michal Komárek', 'Ondřej Cetkovský', 'Ondřej Kolář', 'Vojtěch Kepka']
+const TASK_TYPES = ['Reels', 'Natáčení', 'Grafika', 'Long-form', 'Story', 'Editing', 'Produkce', 'Cesťák', 'Jiný']
 
 interface Props {
   cost: VariableCost | null
@@ -52,6 +29,16 @@ export function EditVariableCostModal({ cost, open, onClose, onSaved }: Props) {
     date: '',
   })
   const [loading, setLoading] = useState(false)
+  const [clients, setClients] = useState<string[]>([])
+
+  // Klienti z databáze (synchronizovaní z Notionu) — načíst při prvním otevření
+  useEffect(() => {
+    if (!open || clients.length > 0) return
+    fetch('/api/companies')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: { id: string; name: string }[]) => setClients(data.map(c => c.name)))
+      .catch(() => {})
+  }, [open, clients.length])
 
   useEffect(() => {
     if (cost) {
@@ -118,15 +105,19 @@ export function EditVariableCostModal({ cost, open, onClose, onSaved }: Props) {
             <div className="space-y-1">
               <Label>
                 Klient
-                {!form.client && <span className="ml-1 text-xs text-red-500">(chybí!)</span>}
+                {!form.client && <span className="ml-1 text-xs text-amber-600">(chybí)</span>}
               </Label>
-              <Select value={form.client} onValueChange={v => set('client', v)}>
-                <SelectTrigger className={!form.client ? 'border-red-300 bg-red-50' : ''}>
+              <Select value={form.client} onValueChange={v => set('client', v === '—' ? '' : v)}>
+                <SelectTrigger className={!form.client ? 'border-amber-300 bg-amber-50' : ''}>
                   <SelectValue placeholder="Vybrat klienta" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="—">— Bez klienta</SelectItem>
-                  {CLIENTS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {/* aktuální hodnota, která už není v seznamu klientů */}
+                  {form.client && !clients.includes(form.client) && (
+                    <SelectItem value={form.client}>{form.client}</SelectItem>
+                  )}
+                  {clients.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

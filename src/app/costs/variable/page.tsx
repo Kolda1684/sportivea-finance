@@ -306,11 +306,11 @@ export default function VariableCostsPage() {
               ) : costs.map((cost) => {
                 const missingClient = !cost.client
                 return (
-                  <tr key={cost.id} className={cn('transition-colors group', missingClient ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/70')}>
+                  <tr key={cost.id} className={cn('transition-colors group', missingClient ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50/70')}>
                     <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">{cost.team_member ?? '—'}</td>
                     <td className="px-3 py-2 border-r border-gray-100">
                       {missingClient ? (
-                        <span className="inline-flex items-center gap-1 text-red-400 text-xs font-medium">
+                        <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
                           <AlertIcon className="h-3 w-3" />
                           chybí klient
                         </span>
