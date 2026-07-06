@@ -188,12 +188,12 @@ export interface TaskMapped {
   status: string | null           // Notion Status (Hotovo / In Progress / …)
 }
 
-// Task se do nákladů dostane až když je Hotovo — jinak není relevantní.
-// (Notion status bývá "Hotovo", případně anglicky "Done".)
+// Task se do nákladů dostane až když je hotový — jinak není relevantní.
+// Většina lidí značí "Hotovo", Daniel Richtr používá "Archived" (= dokončeno a založeno).
+const DONE_STATUSES = new Set(['hotovo', 'done', 'completed', 'dokončeno', 'archived', 'archivováno'])
 export function isTaskDone(status: string | null): boolean {
   if (!status) return false
-  const s = status.trim().toLowerCase()
-  return s === 'hotovo' || s === 'done' || s === 'completed' || s === 'dokončeno'
+  return DONE_STATUSES.has(status.trim().toLowerCase())
 }
 
 export function mapTask(page: PageObjectResponse): TaskMapped | null {
