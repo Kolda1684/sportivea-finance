@@ -2,6 +2,39 @@ import type { PageObjectResponse } from '@notionhq/client/build/src/api-endpoint
 import { createAdminSupabaseClient } from './supabase-server'
 import { queryAllPages, getTitle, getRichText, getSelect, getNumber, getDate, getRelationIds } from './notion'
 
+type Prop = PageObjectResponse['properties'][string]
+
+// Notion properties mají často emoji prefixy ("💰 Odměna", "⌛Hodiny", "👔 Klienti").
+// Porovnáváme názvy bez emoji/interpunkce, case-insensitive.
+function normalizePropName(s: string): string {
+  return s
+    .replace(/[\uD800-\uDFFF\u2000-\u33FF\uFE0F]/g, '') // emoji a symboly (⌛, 💰, 👔…)
+    .replace(/[.,/#!$%^&*;:{}=\-_'"`~()?]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function findProp(
+  props: PageObjectResponse['properties'],
+  names: string[],
+  type?: Prop['type']
+): Prop | undefined {
+  const byName = new Map<string, Prop[]>()
+  for (const [key, value] of Object.entries(props)) {
+    const norm = normalizePropName(key)
+    const list = byName.get(norm) ?? []
+    list.push(value)
+    byName.set(norm, list)
+  }
+  for (const name of names) {
+    const candidates = byName.get(normalizePropName(name)) ?? []
+    const match = candidates.find(p => !type || p.type === type)
+    if (match) return match
+  }
+  return undefined
+}
+
 const COMPANIES_DB_ID = () => process.env.NOTION_COMPANIES_DB_ID
 
 interface EmployeeDb {
@@ -62,15 +95,15 @@ export interface CompanyMapped {
 
 export function mapCompany(page: PageObjectResponse): CompanyMapped | null {
   const props = page.properties
-  const name = getTitle(props['Jméno']) ?? getTitle(props['Name']) ?? getTitle(props['Task name'])
+  const name = getTitle(findProp(props, ['Jméno', 'Name', 'Task name'], 'title'))
   if (!name) return null
 
   return {
     notion_page_id: page.id,
     name,
-    status: mapCompanyStatus(getSelect(props['Status'])),
-    ico: getRichText(props['IČO']) ?? getRichText(props['ICO']),
-    primary_contact_name: getRichText(props['Kontaktní osoba']) ?? getRichText(props['Kontakt']),
+    status: mapCompanyStatus(getSelect(findProp(props, ['Status', 'Stav']))),
+    ico: getRichText(findProp(props, ['IČO', 'ICO'], 'rich_text')),
+    primary_contact_name: getRichText(findProp(props, ['Kontaktní osoba', 'Kontakt'], 'rich_text')),
   }
 }
 
@@ -156,23 +189,30 @@ export interface TaskMapped {
 
 export function mapTask(page: PageObjectResponse): TaskMapped | null {
   const props = page.properties
-  const task_name = getTitle(props['Task']) ?? getTitle(props['Task name']) ?? getTitle(props['Name'])
+  const task_name = getTitle(findProp(props, ['Task', 'Task name', 'Name'], 'title'))
   if (!task_name) return null
 
   // Odměna: Formula vrátí finální cenu (Jednorázová + Hodiny*sazba apod.)
   let finalReward: number | null = null
-  const rewardProp = props['Odměna'] ?? props['Odmena']
+  const rewardProp = findProp(props, ['Odměna', 'Odmena'])
   if (rewardProp) {
     if (rewardProp.type === 'number') finalReward = rewardProp.number
     else if (rewardProp.type === 'formula' && rewardProp.formula.type === 'number') finalReward = rewardProp.formula.number
   }
-  const oneTime = getNumber(props['Jednorázová odměna']) ?? getNumber(props['Jednor.'])
+  const oneTime = getNumber(findProp(props, ['Jednorázová odměna', 'Jednor.'], 'number'))
   // Pokud Odměna formula nevrátí číslo, použít jednorázovou
   const price = (finalReward != null && finalReward > 0) ? finalReward : oneTime
 
+  // Hodiny + minuty → desetinné hodiny
+  const hoursRaw = getNumber(findProp(props, ['Hodiny', 'Hod.', 'Hours'], 'number'))
+  const minutesRaw = getNumber(findProp(props, ['Minuty', 'Min.', 'Minutes'], 'number'))
+  const hours = hoursRaw != null || minutesRaw != null
+    ? Math.round(((hoursRaw ?? 0) + (minutesRaw ?? 0) / 60) * 100) / 100
+    : null
+
   // Měsíc: Formula
   let monthRaw: string | null = null
-  const monthProp = props['Měsíc'] ?? props['Mesic'] ?? props['Month']
+  const monthProp = findProp(props, ['Měsíc', 'Mesic', 'Month'])
   if (monthProp) {
     if (monthProp.type === 'formula') {
       const f = monthProp.formula
@@ -183,15 +223,21 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
     }
   }
 
+  const typeProp = findProp(props, ['Typ', 'Type'])
+  const task_type = getSelect(typeProp) ?? getRichText(typeProp)
+
+  // Relace na klienty: property musí být typu relation ("Klient" bývá i rich_text)
+  const clientRelation = findProp(props, ['Klient', 'Klienti'], 'relation')
+
   return {
     notion_page_id: page.id,
     task_name,
-    task_type: getSelect(props['Typ']) ?? getSelect(props['Type']),
-    hours: getNumber(props['Hodiny']) ?? getNumber(props['Hod.']) ?? getNumber(props['Hours']),
+    task_type,
+    hours,
     price,
-    date: getDate(props['Deadline']) ?? getDate(props['Due Date']),
+    date: getDate(findProp(props, ['Deadline', 'Due Date'], 'date')),
     month: normalizeMonth(monthRaw),
-    notion_company_page_ids: getRelationIds(props['Klient']) ?? getRelationIds(props['Klienti']),
+    notion_company_page_ids: getRelationIds(clientRelation),
   }
 }
 

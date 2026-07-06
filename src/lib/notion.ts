@@ -84,8 +84,10 @@ export function getRichText(prop: Prop | undefined): string | null {
 }
 
 export function getSelect(prop: Prop | undefined): string | null {
-  if (!prop || prop.type !== 'select') return null
-  return prop.select?.name ?? null
+  if (!prop) return null
+  if (prop.type === 'select') return prop.select?.name ?? null
+  if (prop.type === 'status') return prop.status?.name ?? null
+  return null
 }
 
 export function getNumber(prop: Prop | undefined): number | null {

@@ -28,3 +28,4 @@ supabase/.temp/
 
 # Lokální nástroje (impeccable skills, settings)
 .claude/
+.env*
