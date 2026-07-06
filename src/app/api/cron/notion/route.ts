@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { bulkSyncCompanies, bulkSyncTasks } from '@/lib/notion-mapping'
+import { bulkSyncCompanies, bulkSyncTasks, bulkSyncTravel } from '@/lib/notion-mapping'
 
 // Denní catchup cron — pojistka pro webhook eventy, které se ztratily.
 // Synchronizuje vše změněné za posledních 36 hodin (overlap pro jistotu).
@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
   try {
     const companies = await bulkSyncCompanies(since)
     const tasks = await bulkSyncTasks(since)
-    return NextResponse.json({ ok: true, since: since.toISOString(), companies, tasks })
+    const travel = await bulkSyncTravel(since)
+    return NextResponse.json({ ok: true, since: since.toISOString(), companies, tasks, travel })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Cron sync selhal' }, { status: 500 })
   }

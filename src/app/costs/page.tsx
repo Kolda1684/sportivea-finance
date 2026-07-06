@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertCircle, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCZK, formatDate, getCurrentMonth, getLastNMonths, formatMonth } from '@/lib/utils'
+import { EditVariableCostModal } from '@/components/costs/EditVariableCostModal'
 import type { VariableCost, FixedCost, ExtraCost } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -68,6 +69,7 @@ export default function AllCostsPage() {
   const [sortKey, setSortKey] = useState<SortKey | null>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
+  const [editCost, setEditCost] = useState<VariableCost | null>(null)
 
   const months = getLastNMonths(12)
 
@@ -92,6 +94,12 @@ export default function AllCostsPage() {
       if (next.has(t)) next.delete(t); else next.add(t)
       return next
     })
+  }
+
+  function handleEditRow(row: CostRow) {
+    if (row.type !== 'variabilní') return
+    const cost = variable.find(v => v.id === row.id)
+    if (cost) setEditCost(cost)
   }
 
   function handleSort(key: SortKey) {
@@ -253,49 +261,84 @@ export default function AllCostsPage() {
                 <SortHeader label="Zaměstnanec" sortKey="team_member" currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
                 <SortHeader label="Datum"       sortKey="date"        currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
                 <SortHeader label="Částka"      sortKey="amount"      currentKey={sortKey} currentDir={sortDir} onClick={handleSort} align="right" />
+                <th className="w-8" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredSorted.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">Žádné záznamy pro vybrané filtry</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Žádné záznamy pro vybrané filtry</td></tr>
               )}
 
               {grouped !== null && grouped.map(group => (
-                <RowGroup key={group.key} title={group.key} subtotal={group.total} colSpan={6}>
-                  {group.items.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} />)}
+                <RowGroup key={group.key} title={group.key} subtotal={group.total} colSpan={7}>
+                  {group.items.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} onEdit={handleEditRow} />)}
                 </RowGroup>
               ))}
 
-              {grouped === null && filteredSorted.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} />)}
+              {grouped === null && filteredSorted.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} onEdit={handleEditRow} />)}
             </tbody>
             {filteredSorted.length > 0 && (
               <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                 <tr>
                   <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">CELKEM</td>
                   <td className="px-3 py-2.5 font-bold text-red-600 text-right tabular-nums">{formatCZK(totalAmount)}</td>
+                  <td />
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
       )}
+
+      <EditVariableCostModal
+        cost={editCost}
+        open={!!editCost}
+        onClose={() => setEditCost(null)}
+        onSaved={(updated) => {
+          setVariable(prev => prev.map(c => c.id === updated.id ? updated : c))
+          setEditCost(null)
+        }}
+      />
     </div>
   )
 }
 
-function CostRowEl({ row }: { row: CostRow }) {
+function CostRowEl({ row, onEdit }: { row: CostRow; onEdit: (row: CostRow) => void }) {
+  // Variabilní náklad bez klienta — lehce žlutě, ať je vidět, co je potřeba doplnit
+  const missingClient = row.type === 'variabilní' && !row.client
+  const editable = row.type === 'variabilní'
   return (
-    <tr className="hover:bg-gray-50/70 group">
+    <tr className={cn('group transition-colors', missingClient ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50/70')}>
       <td className="px-3 py-2 border-r border-gray-100">
         <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', TYPE_BADGE[row.type])}>
           {row.type}
         </span>
       </td>
       <td className="px-3 py-2 font-medium text-gray-900 max-w-[220px] truncate border-r border-gray-100" title={row.name}>{row.name}</td>
-      <td className="px-3 py-2 text-gray-500 text-xs border-r border-gray-100">{row.client ?? '—'}</td>
+      <td className="px-3 py-2 text-xs border-r border-gray-100">
+        {missingClient ? (
+          <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
+            <AlertCircle className="h-3 w-3" />
+            chybí klient
+          </span>
+        ) : (
+          <span className="text-gray-500">{row.client ?? '—'}</span>
+        )}
+      </td>
       <td className="px-3 py-2 text-gray-500 text-xs border-r border-gray-100">{row.team_member ?? '—'}</td>
       <td className="px-3 py-2 text-gray-500 tabular-nums border-r border-gray-100">{row.date ? formatDate(row.date) : '—'}</td>
-      <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums">{formatCZK(row.amount)}</td>
+      <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(row.amount)}</td>
+      <td className="px-2 py-2">
+        {editable && (
+          <button
+            onClick={() => onEdit(row)}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"
+            title="Upravit"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </td>
     </tr>
   )
 }
