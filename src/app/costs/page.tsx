@@ -89,10 +89,11 @@ export default function AllCostsPage() {
       </div>
 
       {/* KPI karty */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {([
           { label: 'Mzdy',     value: totalWages,  hint: 'práce z Notionu', color: 'text-blue-600' },
           { label: 'Cestovné', value: totalTravel, hint: 'náhrady cest',     color: 'text-teal-600' },
+          { label: 'Extra',    value: totalExtra,  hint: `${extra.length} položek`, color: 'text-orange-600' },
           { label: 'Fixní',    value: totalFixed,  hint: `${fixed.length} položek`, color: 'text-purple-600' },
           { label: 'Celkem',   value: totalAll,    hint: 'vše dohromady',    color: 'text-gray-900' },
         ]).map(card => (
