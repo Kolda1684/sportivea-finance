@@ -1,75 +1,24 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertCircle, Pencil } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Users, Building2, ChevronRight } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatCZK, formatDate, getCurrentMonth, getLastNMonths, formatMonth } from '@/lib/utils'
-import { EditVariableCostModal } from '@/components/costs/EditVariableCostModal'
+import { formatCZK, getCurrentMonth, getLastNMonths, formatMonth } from '@/lib/utils'
 import type { VariableCost, FixedCost, ExtraCost } from '@/types'
 import { cn } from '@/lib/utils'
 
-type CostType = 'variabilní' | 'fixní' | 'extra'
-type SortKey = 'type' | 'name' | 'client' | 'team_member' | 'date' | 'amount'
-type SortDir = 'asc' | 'desc'
-type GroupBy = 'none' | 'type' | 'client' | 'team_member'
-
-interface CostRow {
-  id: string
-  type: CostType
-  name: string
-  client: string | null
-  team_member: string | null
-  amount: number
-  date: string | null
-}
-
-const TYPE_BADGE: Record<CostType, string> = {
-  variabilní: 'bg-blue-100 text-blue-700',
-  fixní:      'bg-purple-100 text-purple-700',
-  extra:      'bg-orange-100 text-orange-700',
-}
-
-function compareValues(a: unknown, b: unknown): number {
-  if (a == null && b == null) return 0
-  if (a == null) return 1
-  if (b == null) return -1
-  if (typeof a === 'number' && typeof b === 'number') return a - b
-  return String(a).localeCompare(String(b), 'cs')
-}
-
-function SortHeader({ label, sortKey, currentKey, currentDir, onClick, align = 'left' }: {
-  label: string; sortKey: SortKey; currentKey: SortKey | null; currentDir: SortDir
-  onClick: (k: SortKey) => void
-  align?: 'left' | 'right'
-}) {
-  const active = currentKey === sortKey
-  return (
-    <th className={cn(
-      'px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100 last:border-r-0',
-      align === 'right' ? 'text-right' : 'text-left',
-    )}>
-      <button onClick={() => onClick(sortKey)} className="inline-flex items-center gap-1 hover:text-gray-900">
-        {label}
-        {!active && <ArrowUpDown className="h-3 w-3 text-gray-300" />}
-        {active && currentDir === 'asc' && <ArrowUp className="h-3 w-3" />}
-        {active && currentDir === 'desc' && <ArrowDown className="h-3 w-3" />}
-      </button>
-    </th>
-  )
-}
+const TRAVEL_TYPE = 'Cesťák'
+const isTravel = (v: VariableCost) => v.task_type === TRAVEL_TYPE
 
 export default function AllCostsPage() {
+  const router = useRouter()
   const [variable, setVariable] = useState<VariableCost[]>([])
   const [fixed, setFixed] = useState<FixedCost[]>([])
   const [extra, setExtra] = useState<ExtraCost[]>([])
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState(getCurrentMonth())
-  const [typeFilter, setTypeFilter] = useState<Set<CostType>>(new Set<CostType>(['variabilní', 'fixní', 'extra']))
-  const [sortKey, setSortKey] = useState<SortKey | null>('date')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [groupBy, setGroupBy] = useState<GroupBy>('none')
-  const [editCost, setEditCost] = useState<VariableCost | null>(null)
 
   const months = getLastNMonths(12)
 
@@ -88,78 +37,46 @@ export default function AllCostsPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  function toggleType(t: CostType) {
-    setTypeFilter(prev => {
-      const next = new Set(prev)
-      if (next.has(t)) next.delete(t); else next.add(t)
-      return next
-    })
-  }
-
-  function handleEditRow(row: CostRow) {
-    if (row.type !== 'variabilní') return
-    const cost = variable.find(v => v.id === row.id)
-    if (cost) setEditCost(cost)
-  }
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else {
-      setSortKey(key)
-      setSortDir(key === 'amount' || key === 'date' ? 'desc' : 'asc')
-    }
-  }
-
-  const allRows = useMemo<CostRow[]>(() => [
-    ...variable.map(v => ({
-      id: v.id, type: 'variabilní' as const,
-      name: v.task_name ?? v.task_type ?? 'Bez názvu',
-      client: v.client, team_member: v.team_member,
-      amount: v.price ?? 0, date: v.date,
-    })),
-    ...fixed.map(f => ({
-      id: f.id, type: 'fixní' as const, name: f.name,
-      client: null, team_member: null, amount: f.amount, date: null,
-    })),
-    ...extra.map(e => ({
-      id: e.id, type: 'extra' as const, name: e.name,
-      client: null, team_member: null, amount: e.amount, date: e.date,
-    })),
-  ], [variable, fixed, extra])
-
-  const filteredSorted = useMemo(() => {
-    const filtered = allRows.filter(r => typeFilter.has(r.type))
-    if (!sortKey) return filtered
-    return [...filtered].sort((a, b) => {
-      const cmp = compareValues(a[sortKey] as unknown, b[sortKey] as unknown)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [allRows, typeFilter, sortKey, sortDir])
-
-  const totalAmount = filteredSorted.reduce((s, r) => s + r.amount, 0)
-  const totalVariable = variable.reduce((s, v) => s + (v.price ?? 0), 0)
+  // Mzdy = tasky z Notionu, Cestovné = cesťáky (náhrada, ne mzda)
+  const totalWages = variable.filter(v => !isTravel(v)).reduce((s, v) => s + (v.price ?? 0), 0)
+  const totalTravel = variable.filter(isTravel).reduce((s, v) => s + (v.price ?? 0), 0)
   const totalFixed = fixed.reduce((s, f) => s + f.amount, 0)
   const totalExtra = extra.reduce((s, e) => s + e.amount, 0)
-  const totalAll = totalVariable + totalFixed + totalExtra
+  const totalAll = totalWages + totalTravel + totalFixed + totalExtra
 
-  const grouped = useMemo(() => {
-    if (groupBy === 'none') return null
-    const groups = new Map<string, CostRow[]>()
-    for (const r of filteredSorted) {
-      const key = (() => {
-        if (groupBy === 'type') return r.type
-        if (groupBy === 'client') return r.client ?? '— bez klienta —'
-        if (groupBy === 'team_member') return r.team_member ?? '— bez zaměstnance —'
-        return ''
-      })()
-      const arr = groups.get(key) ?? []
-      arr.push(r)
-      groups.set(key, arr)
+  // Náklady po klientech (jen variabilní práce; cesťáky bez klienta jdou do "bez klienta")
+  const byClient = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const v of variable) {
+      const key = v.client ?? '— bez klienta —'
+      map.set(key, (map.get(key) ?? 0) + (v.price ?? 0))
     }
-    return Array.from(groups.entries()).map(([key, items]) => ({
-      key, items, total: items.reduce((s, i) => s + i.amount, 0),
-    }))
-  }, [filteredSorted, groupBy])
+    return Array.from(map.entries())
+      .map(([client, total]) => ({ client, total }))
+      .sort((a, b) => b.total - a.total)
+  }, [variable])
+
+  // Náklady po zaměstnancích — mzda + cestovné zvlášť
+  const byMember = useMemo(() => {
+    const map = new Map<string, { wages: number; travel: number; hours: number }>()
+    for (const v of variable) {
+      const key = v.team_member ?? '— neznámý —'
+      const rec = map.get(key) ?? { wages: 0, travel: 0, hours: 0 }
+      if (isTravel(v)) rec.travel += v.price ?? 0
+      else { rec.wages += v.price ?? 0; rec.hours += v.hours ?? 0 }
+      map.set(key, rec)
+    }
+    return Array.from(map.entries())
+      .map(([name, d]) => ({ name, ...d, total: d.wages + d.travel }))
+      .sort((a, b) => b.total - a.total)
+  }, [variable])
+
+  function goToVariable(params: Record<string, string>) {
+    const qs = new URLSearchParams({ month, ...params })
+    router.push(`/costs/variable?${qs}`)
+  }
+
+  const monthLabel = formatMonth(month).charAt(0).toUpperCase() + formatMonth(month).slice(1)
 
   return (
     <div className="p-8 space-y-5">
@@ -167,43 +84,28 @@ export default function AllCostsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Přehled nákladů</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {formatMonth(month).charAt(0).toUpperCase() + formatMonth(month).slice(1)} · celkem <span className="font-semibold text-red-600">{formatCZK(totalAll)}</span>
+          {monthLabel} · celkem <span className="font-semibold text-red-600">{formatCZK(totalAll)}</span>
         </p>
       </div>
 
-      {/* KPI karty — klikatelné jako filter toggles */}
+      {/* KPI karty */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {([
-          { label: 'Variabilní', value: totalVariable, count: variable.length, color: 'text-blue-600',   type: 'variabilní' as const },
-          { label: 'Fixní',      value: totalFixed,    count: fixed.length,    color: 'text-purple-600', type: 'fixní' as const },
-          { label: 'Extra',      value: totalExtra,    count: extra.length,    color: 'text-orange-600', type: 'extra' as const },
-          { label: 'Celkem',     value: totalAll,      count: allRows.length,  color: 'text-gray-900',   type: null },
-        ]).map(card => {
-          const active = card.type === null
-            ? typeFilter.size === 3
-            : typeFilter.has(card.type) && typeFilter.size === 1
-          return (
-            <button
-              key={card.label}
-              onClick={() => {
-                if (card.type === null) setTypeFilter(new Set<CostType>(['variabilní', 'fixní', 'extra']))
-                else setTypeFilter(new Set<CostType>([card.type]))
-              }}
-              className={cn(
-                'rounded-xl border bg-white p-4 text-left transition-all hover:shadow-sm',
-                active && 'border-primary-900 shadow-sm'
-              )}
-            >
-              <p className="text-xs text-gray-500 font-medium">{card.label}</p>
-              <p className={cn('text-xl font-bold mt-1', card.color)}>{formatCZK(card.value)}</p>
-              <p className="text-xs text-gray-500">{card.count} položek</p>
-            </button>
-          )
-        })}
+          { label: 'Mzdy',     value: totalWages,  hint: 'práce z Notionu', color: 'text-blue-600' },
+          { label: 'Cestovné', value: totalTravel, hint: 'náhrady cest',     color: 'text-teal-600' },
+          { label: 'Fixní',    value: totalFixed,  hint: `${fixed.length} položek`, color: 'text-purple-600' },
+          { label: 'Celkem',   value: totalAll,    hint: 'vše dohromady',    color: 'text-gray-900' },
+        ]).map(card => (
+          <div key={card.label} className="rounded-xl border bg-white p-4">
+            <p className="text-xs text-gray-500 font-medium">{card.label}</p>
+            <p className={cn('text-xl font-bold mt-1', card.color)}>{formatCZK(card.value)}</p>
+            <p className="text-xs text-gray-400">{card.hint}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Filtry */}
-      <div className="flex items-center gap-3 flex-wrap">
+      {/* Měsíc */}
+      <div className="flex items-center gap-3">
         <Select value={month} onValueChange={setMonth}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -214,149 +116,112 @@ export default function AllCostsPage() {
             ))}
           </SelectContent>
         </Select>
-
-        {/* Multi-select typ — pill-toggles */}
-        <div className="flex items-center gap-1 bg-white border rounded-lg p-1">
-          {(['variabilní', 'fixní', 'extra'] as CostType[]).map(t => {
-            const isActive = typeFilter.has(t)
-            return (
-              <button
-                key={t}
-                onClick={() => toggleType(t)}
-                className={cn(
-                  'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-                  isActive ? TYPE_BADGE[t] : 'text-gray-400 hover:bg-gray-100',
-                )}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            )
-          })}
-        </div>
-
-        <Select value={groupBy} onValueChange={v => setGroupBy(v as GroupBy)}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="Seskupit" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Bez seskupení</SelectItem>
-            <SelectItem value="type">Seskupit podle Typ</SelectItem>
-            <SelectItem value="client">Seskupit podle Klient</SelectItem>
-            <SelectItem value="team_member">Seskupit podle Zaměstnanec</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
-      {/* Tabulka */}
+      {/* Dvě tabulky: Klienti | Zaměstnanci */}
       {loading ? (
-        <div className="space-y-2">
-          {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {[0, 1].map(i => <Skeleton key={i} className="h-80 w-full rounded-xl" />)}
         </div>
       ) : (
-        <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm border-collapse">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <SortHeader label="Typ"         sortKey="type"        currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
-                <SortHeader label="Název"       sortKey="name"        currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
-                <SortHeader label="Klient"      sortKey="client"      currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
-                <SortHeader label="Zaměstnanec" sortKey="team_member" currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
-                <SortHeader label="Datum"       sortKey="date"        currentKey={sortKey} currentDir={sortDir} onClick={handleSort} />
-                <SortHeader label="Částka"      sortKey="amount"      currentKey={sortKey} currentDir={sortDir} onClick={handleSort} align="right" />
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredSorted.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Žádné záznamy pro vybrané filtry</td></tr>
-              )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-              {grouped !== null && grouped.map(group => (
-                <RowGroup key={group.key} title={group.key} subtotal={group.total} colSpan={7}>
-                  {group.items.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} onEdit={handleEditRow} />)}
-                </RowGroup>
-              ))}
-
-              {grouped === null && filteredSorted.map(r => <CostRowEl key={`${r.type}-${r.id}`} row={r} onEdit={handleEditRow} />)}
-            </tbody>
-            {filteredSorted.length > 0 && (
+          {/* Náklady po klientech */}
+          <div className="rounded-xl border bg-white overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50">
+              <Building2 className="h-4 w-4 text-gray-500" />
+              <h2 className="font-semibold text-sm">Náklady po klientech</h2>
+              <span className="ml-auto text-xs text-gray-400">{byClient.length} klientů</span>
+            </div>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-gray-100">
+                {byClient.length === 0 && (
+                  <tr><td className="px-4 py-8 text-center text-gray-400">Žádné náklady</td></tr>
+                )}
+                {byClient.map(({ client, total }) => {
+                  const noClient = client.startsWith('—')
+                  return (
+                    <tr
+                      key={client}
+                      onClick={() => !noClient && goToVariable({ client })}
+                      className={cn('group', !noClient && 'cursor-pointer hover:bg-gray-50/70', noClient && 'bg-amber-50/50')}
+                    >
+                      <td className="px-4 py-2.5">
+                        <span className={cn(noClient ? 'text-amber-600 font-medium' : 'text-gray-900')}>{client}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">
+                        {formatCZK(total)}
+                        {!noClient && <ChevronRight className="inline-block ml-1 h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" />}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
               <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                 <tr>
-                  <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">CELKEM</td>
-                  <td className="px-3 py-2.5 font-bold text-red-600 text-right tabular-nums">{formatCZK(totalAmount)}</td>
-                  <td />
+                  <td className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-red-600 tabular-nums">
+                    {formatCZK(totalWages + totalTravel)}
+                  </td>
                 </tr>
               </tfoot>
-            )}
-          </table>
+            </table>
+          </div>
+
+          {/* Náklady po zaměstnancích */}
+          <div className="rounded-xl border bg-white overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50">
+              <Users className="h-4 w-4 text-gray-500" />
+              <h2 className="font-semibold text-sm">Náklady po zaměstnancích</h2>
+              <span className="ml-auto text-xs text-gray-400">{byMember.length} lidí</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-2 text-left font-medium">Zaměstnanec</th>
+                  <th className="px-2 py-2 text-right font-medium">Mzda</th>
+                  <th className="px-2 py-2 text-right font-medium">Cestovné</th>
+                  <th className="px-4 py-2 text-right font-medium">Celkem</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {byMember.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">Žádné náklady</td></tr>
+                )}
+                {byMember.map(m => (
+                  <tr
+                    key={m.name}
+                    onClick={() => goToVariable({ member: m.name })}
+                    className="group cursor-pointer hover:bg-gray-50/70"
+                  >
+                    <td className="px-4 py-2.5">
+                      <span className="text-gray-900">{m.name}</span>
+                      {m.hours > 0 && <span className="ml-2 text-xs text-gray-400">{Math.round(m.hours * 10) / 10} h</span>}
+                    </td>
+                    <td className="px-2 py-2.5 text-right tabular-nums text-gray-900 whitespace-nowrap">{formatCZK(m.wages)}</td>
+                    <td className="px-2 py-2.5 text-right tabular-nums text-teal-600 whitespace-nowrap">
+                      {m.travel > 0 ? formatCZK(m.travel) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">
+                      {formatCZK(m.total)}
+                      <ChevronRight className="inline-block ml-1 h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                <tr>
+                  <td className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem</td>
+                  <td className="px-2 py-2.5 text-right font-bold tabular-nums text-gray-900">{formatCZK(totalWages)}</td>
+                  <td className="px-2 py-2.5 text-right font-bold tabular-nums text-teal-600">{formatCZK(totalTravel)}</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-red-600 tabular-nums">{formatCZK(totalWages + totalTravel)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
         </div>
       )}
-
-      <EditVariableCostModal
-        cost={editCost}
-        open={!!editCost}
-        onClose={() => setEditCost(null)}
-        onSaved={(updated) => {
-          setVariable(prev => prev.map(c => c.id === updated.id ? updated : c))
-          setEditCost(null)
-        }}
-      />
     </div>
-  )
-}
-
-function CostRowEl({ row, onEdit }: { row: CostRow; onEdit: (row: CostRow) => void }) {
-  // Variabilní náklad bez klienta — lehce žlutě, ať je vidět, co je potřeba doplnit
-  const missingClient = row.type === 'variabilní' && !row.client
-  const editable = row.type === 'variabilní'
-  return (
-    <tr className={cn('group transition-colors', missingClient ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50/70')}>
-      <td className="px-3 py-2 border-r border-gray-100">
-        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', TYPE_BADGE[row.type])}>
-          {row.type}
-        </span>
-      </td>
-      <td className="px-3 py-2 font-medium text-gray-900 max-w-[220px] truncate border-r border-gray-100" title={row.name}>{row.name}</td>
-      <td className="px-3 py-2 text-xs border-r border-gray-100">
-        {missingClient ? (
-          <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
-            <AlertCircle className="h-3 w-3" />
-            chybí klient
-          </span>
-        ) : (
-          <span className="text-gray-500">{row.client ?? '—'}</span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-gray-500 text-xs border-r border-gray-100">{row.team_member ?? '—'}</td>
-      <td className="px-3 py-2 text-gray-500 tabular-nums border-r border-gray-100">{row.date ? formatDate(row.date) : '—'}</td>
-      <td className="px-3 py-2 text-right font-semibold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(row.amount)}</td>
-      <td className="px-2 py-2">
-        {editable && (
-          <button
-            onClick={() => onEdit(row)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"
-            title="Upravit"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </td>
-    </tr>
-  )
-}
-
-function RowGroup({ title, subtotal, colSpan, children }: {
-  title: string; subtotal: number; colSpan: number; children: React.ReactNode
-}) {
-  return (
-    <>
-      <tr className="bg-gray-50/60">
-        <td colSpan={colSpan} className="px-3 py-1.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          {title}
-          <span className="ml-3 text-gray-400 normal-case tracking-normal tabular-nums">
-            {formatCZK(subtotal)}
-          </span>
-        </td>
-      </tr>
-      {children}
-    </>
   )
 }

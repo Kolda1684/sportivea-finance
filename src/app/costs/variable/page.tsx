@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { EditVariableCostModal } from '@/components/costs/EditVariableCostModal'
 import type { VariableCost } from '@/types'
 
-const TEAM_MEMBERS = ['Adam Onderka', 'Anna Švaralová', 'Daniel Richtr', 'Filip Telenský', 'Jan Pachota', 'Michal Komárek', 'Ondřej Cetkovský', 'Ondřej Kolář', 'Vojtěch Kepka']
+const TEAM_MEMBERS = ['Adam Onderka', 'Anna Švaralová', 'Daniel Richtr', 'Eliška', 'Filip Telenský', 'Jan Pachota', 'Kuba Král', 'Martin Aust', 'Matyáš Sokol', 'Michal Komárek', 'Ondřej Cetkovský', 'Ondřej Kolář', 'Vojtěch Kepka']
 
 // ─── CSV Import Banner ──────────────────────────────────────────────────────
 function CsvImportBanner({ onImported }: { onImported: () => void }) {
@@ -106,6 +106,14 @@ export default function VariableCostsPage() {
   const [month, setMonth] = useState(getCurrentMonth())
   const [memberFilter, setMemberFilter] = useState('all')
   const [clientFilter, setClientFilter] = useState('all')
+
+  // Počáteční filtr z URL (proklik z Přehledu — ?month=&member=&client=)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('month')) setMonth(p.get('month')!)
+    if (p.get('member')) setMemberFilter(p.get('member')!)
+    if (p.get('client')) setClientFilter(p.get('client')!)
+  }, [])
   const [showImport, setShowImport] = useState(false)
   const [editCost, setEditCost] = useState<VariableCost | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -139,13 +147,17 @@ export default function VariableCostsPage() {
 
   const months = getLastNMonths(12)
 
+  const reqIdRef = useRef(0)
   const fetchCosts = useCallback(async () => {
+    const reqId = ++reqIdRef.current
     setLoading(true)
     const params = new URLSearchParams({ month })
     if (memberFilter !== 'all') params.set('member', memberFilter)
     if (clientFilter !== 'all') params.set('client', clientFilter)
     const res = await fetch(`/api/costs/variable?${params}`)
     const data: VariableCost[] = await res.json()
+    // Ignoruj odpověď, pokud mezitím odešel novější požadavek (race při změně filtru)
+    if (reqId !== reqIdRef.current) return
     setCosts(data)
     setLoading(false)
   }, [month, memberFilter, clientFilter])
@@ -262,7 +274,7 @@ export default function VariableCostsPage() {
             <div key={name} className="rounded-xl border bg-white p-4">
               <p className="text-xs text-muted-foreground font-medium">{name}</p>
               <p className="text-lg font-bold text-red-600 mt-1">{formatCZK(d.price)}</p>
-              <p className="text-xs text-muted-foreground">{d.hours} h</p>
+              <p className="text-xs text-muted-foreground">{Math.round(d.hours * 10) / 10} h</p>
             </div>
           ))}
         </div>
