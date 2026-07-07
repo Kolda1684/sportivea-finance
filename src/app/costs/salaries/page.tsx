@@ -16,10 +16,21 @@ interface OwnerSalary {
   note: string | null
 }
 
+interface OwnerInvoice {
+  id: string
+  owner_name: string
+  description: string | null
+  client: string | null
+  amount: number
+  month: string
+  created_at: string
+}
+
 const DEFAULT_OWNERS = ['Jan Kolář', 'Martin Remeš']
 
 export default function SalariesPage() {
   const [salaries, setSalaries] = useState<OwnerSalary[]>([])
+  const [invoices, setInvoices] = useState<OwnerInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [year, setYear] = useState(new Date().getFullYear())
   const [savingKey, setSavingKey] = useState<string | null>(null)
@@ -28,8 +39,12 @@ export default function SalariesPage() {
 
   async function fetchSalaries() {
     setLoading(true)
-    const res = await fetch(`/api/costs/salaries?year=${year}`)
-    if (res.ok) setSalaries(await res.json())
+    const [salRes, invRes] = await Promise.all([
+      fetch(`/api/costs/salaries?year=${year}`),
+      fetch(`/api/costs/owner-invoices?year=${year}`),
+    ])
+    if (salRes.ok) setSalaries(await salRes.json())
+    if (invRes.ok) setInvoices(await invRes.json())
     setLoading(false)
   }
 
@@ -133,11 +148,39 @@ export default function SalariesPage() {
     return m
   }, [owners, months, lookup])
 
-  const grandTotal = Object.values(totalsByOwner).reduce((s, o) => s + o.total, 0)
+  const gridTotal = Object.values(totalsByOwner).reduce((s, o) => s + o.total, 0)
   const paidTotal = Object.values(totalsByOwner).reduce((s, o) => s + o.paid, 0)
+  const invoicesTotal = invoices.reduce((s, i) => s + (i.amount ?? 0), 0)
+  const grandTotal = gridTotal + invoicesTotal
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
+
+  // ── Faktury majitelů (ruční tabulka) ──────────────────────────────────
+  const [invForm, setInvForm] = useState({ owner_name: '', description: '', client: '', amount: '', month: getCurrentMonth() })
+  const [addingInvoice, setAddingInvoice] = useState(false)
+
+  async function addInvoice() {
+    const amount = parseFloat(invForm.amount.replace(/\s/g, '').replace(',', '.')) || 0
+    if (!invForm.owner_name || amount <= 0) return
+    setAddingInvoice(true)
+    const res = await fetch('/api/costs/owner-invoices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...invForm, amount }),
+    })
+    if (res.ok) {
+      const created: OwnerInvoice = await res.json()
+      setInvoices(prev => [created, ...prev])
+      setInvForm(f => ({ ...f, description: '', client: '', amount: '' }))
+    }
+    setAddingInvoice(false)
+  }
+
+  async function deleteInvoice(id: string) {
+    await fetch(`/api/costs/owner-invoices?id=${id}`, { method: 'DELETE' })
+    setInvoices(prev => prev.filter(i => i.id !== id))
+  }
 
   return (
     <div className="p-8 space-y-6">
@@ -148,7 +191,8 @@ export default function SalariesPage() {
           <p className="text-sm text-gray-500 mt-1">
             Rok {year}: <span className="font-semibold text-red-600">{formatCZK(grandTotal)}</span>
             <span className="ml-2 text-xs text-muted-foreground">
-              · vyplaceno {formatCZK(paidTotal)} ({grandTotal > 0 ? Math.round((paidTotal / grandTotal) * 100) : 0} %)
+              · platy {formatCZK(gridTotal)}{invoicesTotal > 0 && <> + faktury {formatCZK(invoicesTotal)}</>}
+              {' · '}vyplaceno {formatCZK(paidTotal)} ({gridTotal > 0 ? Math.round((paidTotal / gridTotal) * 100) : 0} %)
             </span>
           </p>
         </div>
@@ -222,21 +266,29 @@ export default function SalariesPage() {
                       return (
                         <td key={key} className="px-2 py-1.5 border-r border-gray-100">
                           <div className="flex items-center gap-1.5 justify-end">
-                            <input
-                              type="number"
-                              defaultValue={cell?.amount ?? ''}
-                              placeholder="0"
-                              disabled={saving}
-                              className="w-24 text-right rounded border border-gray-200 px-2 py-1 text-sm tabular-nums focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none disabled:opacity-50"
-                              onBlur={e => {
-                                const v = parseFloat(e.target.value || '0')
-                                const prev = cell?.amount ?? 0
-                                if (v !== prev) upsertCell(owner, month, { amount: v })
-                              }}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                              }}
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                defaultValue={cell?.amount ? cell.amount.toLocaleString('cs-CZ') : ''}
+                                placeholder="0"
+                                disabled={saving}
+                                className="w-28 text-right rounded border border-gray-200 pl-2 pr-8 py-1 text-sm tabular-nums focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none disabled:opacity-50"
+                                onFocus={e => { e.target.value = e.target.value.replace(/\s/g, '') }}
+                                onBlur={e => {
+                                  // Povol mezery i tečky jako oddělovače tisíců, čárku jako desetinnou
+                                  const raw = e.target.value.replace(/\s/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
+                                  const v = parseFloat(raw || '0') || 0
+                                  const prev = cell?.amount ?? 0
+                                  e.target.value = v ? v.toLocaleString('cs-CZ') : ''
+                                  if (v !== prev) upsertCell(owner, month, { amount: v })
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                }}
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">Kč</span>
+                            </div>
                             <button
                               onClick={() => togglePaid(owner, month)}
                               disabled={saving}
@@ -298,6 +350,105 @@ export default function SalariesPage() {
         💡 Tip: Kliknutím na hodiny <Clock className="inline h-3 w-3" /> označíš plat jako vyplaceno (dnes).
         Plat lze pozdějí napárovat s bankovní transakcí přes detail.
       </p>
+
+      {/* ── Faktury majitelů (ruční) ────────────────────────────────────── */}
+      <div className="rounded-xl border bg-white overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+          <h2 className="font-semibold text-sm">Faktury majitelů {year}</h2>
+          <span className="text-xs text-muted-foreground">
+            {invoices.length} položek · <span className="font-semibold text-red-600">{formatCZK(invoicesTotal)}</span>
+          </span>
+        </div>
+
+        {/* Přidání řádku */}
+        <div className="grid grid-cols-[1.2fr_1.6fr_1.4fr_0.8fr_1fr_auto] gap-2 px-4 py-3 border-b bg-white items-center">
+          <select
+            value={invForm.owner_name}
+            onChange={e => setInvForm(f => ({ ...f, owner_name: e.target.value }))}
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm bg-white"
+          >
+            <option value="">Kdo…</option>
+            {owners.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <input
+            value={invForm.description}
+            onChange={e => setInvForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="Za co (popis)"
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+          />
+          <input
+            value={invForm.client}
+            onChange={e => setInvForm(f => ({ ...f, client: e.target.value }))}
+            placeholder="Klient"
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+          />
+          <select
+            value={invForm.month}
+            onChange={e => setInvForm(f => ({ ...f, month: e.target.value }))}
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm bg-white capitalize"
+          >
+            {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
+          </select>
+          <div className="relative">
+            <input
+              value={invForm.amount}
+              onChange={e => setInvForm(f => ({ ...f, amount: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addInvoice()}
+              placeholder="0"
+              inputMode="numeric"
+              className="w-full text-right rounded-md border border-gray-200 pl-2 pr-7 py-1.5 text-sm tabular-nums"
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">Kč</span>
+          </div>
+          <Button size="sm" onClick={addInvoice} disabled={addingInvoice || !invForm.owner_name}>
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50/60 border-b">
+            <tr className="text-xs text-gray-500 uppercase tracking-wide">
+              <th className="px-4 py-2 text-left font-medium">Kdo vystavuje</th>
+              <th className="px-4 py-2 text-left font-medium">Za co</th>
+              <th className="px-4 py-2 text-left font-medium">Klient</th>
+              <th className="px-4 py-2 text-left font-medium">Měsíc</th>
+              <th className="px-4 py-2 text-right font-medium">Kolik</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {invoices.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Zatím žádné faktury — přidej nahoře</td></tr>
+            ) : invoices.map(inv => (
+              <tr key={inv.id} className="group hover:bg-gray-50/70">
+                <td className="px-4 py-2.5 font-medium text-gray-900">{inv.owner_name}</td>
+                <td className="px-4 py-2.5 text-gray-600">{inv.description ?? '—'}</td>
+                <td className="px-4 py-2.5 text-gray-600">{inv.client ?? '—'}</td>
+                <td className="px-4 py-2.5 text-gray-500 capitalize whitespace-nowrap">{formatMonth(inv.month)}</td>
+                <td className="px-4 py-2.5 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">{formatCZK(inv.amount)}</td>
+                <td className="px-2 py-2.5">
+                  <button
+                    onClick={() => deleteInvoice(inv.id)}
+                    title="Smazat"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {invoices.length > 0 && (
+            <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+              <tr>
+                <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem faktury</td>
+                <td className="px-4 py-2.5 text-right font-bold text-red-600 tabular-nums">{formatCZK(invoicesTotal)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   )
 }
