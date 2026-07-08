@@ -7,7 +7,7 @@ import { formatCZK } from '@/lib/utils'
 const MONTH_NAMES = ['Led', 'Úno', 'Bře', 'Dub', 'Kvě', 'Čer', 'Čvc', 'Srp', 'Zář', 'Říj', 'Lis', 'Pro']
 
 interface YearlyBar { monthIdx: number; income: number; costs: number }
-interface YearTotals { income: number; variable: number; extra: number; fixed: number }
+interface YearTotals { income: number; variable: number; extra: number; fixed: number; salaries: number }
 
 export function YearlyBarChart({ data, totals, year }: { data: YearlyBar[]; totals: YearTotals; year: number }) {
   const chartData = data.map(d => ({
@@ -16,7 +16,7 @@ export function YearlyBarChart({ data, totals, year }: { data: YearlyBar[]; tota
     Náklady: d.costs,
   }))
 
-  const totalCosts = totals.variable + totals.extra + totals.fixed
+  const totalCosts = totals.variable + totals.extra + totals.fixed + totals.salaries
   const profit = totals.income - totalCosts
 
   return (
