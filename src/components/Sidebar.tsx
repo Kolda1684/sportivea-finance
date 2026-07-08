@@ -29,16 +29,7 @@ interface SidebarProps {
 const adminNavItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/income', label: 'Příjmy a projekty', icon: DollarSign },
-  {
-    label: 'Náklady',
-    icon: TrendingDown,
-    children: [
-      { href: '/costs', label: 'Přehled' },
-      { href: '/costs/variable', label: 'Variabilní' },
-      { href: '/costs/fixed', label: 'Fixní' },
-      { href: '/costs/extra', label: 'Extra' },
-    ],
-  },
+  { href: '/costs', label: 'Přehled nákladů', icon: TrendingDown, exact: true },
   { href: '/costs/salaries', label: 'Platy majitelů', icon: Wallet },
   {
     label: 'Faktury',
@@ -46,6 +37,15 @@ const adminNavItems = [
     children: [
       { href: '/invoices', label: 'Vydané faktury' },
       { href: '/invoices/expense', label: 'Přijaté faktury' },
+    ],
+  },
+  {
+    label: 'Náklady',
+    icon: TrendingDown,
+    children: [
+      { href: '/costs/variable', label: 'Variabilní' },
+      { href: '/costs/fixed', label: 'Fixní' },
+      { href: '/costs/extra', label: 'Extra' },
     ],
   },
   { href: '/invoices/upload', label: 'AI Upload faktur', icon: Sparkles },
@@ -65,7 +65,7 @@ export function Sidebar({ role, userName }: SidebarProps) {
   const router = useRouter()
   const isInvoicesPage = pathname.startsWith('/invoices') && !pathname.startsWith('/invoices/upload')
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    Náklady: pathname.startsWith('/costs') && !pathname.startsWith('/costs/salaries'),
+    Náklady: ['/costs/variable', '/costs/fixed', '/costs/extra'].some(p => pathname.startsWith(p)),
     Faktury: isInvoicesPage,
   })
 
@@ -83,7 +83,7 @@ export function Sidebar({ role, userName }: SidebarProps) {
   const topItems = isAdmin ? adminNavItems : []
   const bottomExtraItems = isAdmin ? adminOnlyBottomItems : editorNavItems
 
-  function renderItem(item: { href?: string; label: string; icon: React.ComponentType<{ className?: string }>; children?: { href: string; label: string }[] }) {
+  function renderItem(item: { href?: string; label: string; icon: React.ComponentType<{ className?: string }>; children?: { href: string; label: string }[]; exact?: boolean }) {
     if (item.children) {
       return (
         <div key={item.label}>
@@ -130,7 +130,7 @@ export function Sidebar({ role, userName }: SidebarProps) {
         href={item.href!}
         className={cn(
           'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-          pathname === item.href || pathname.startsWith(item.href! + '/')
+          pathname === item.href || (!item.exact && pathname.startsWith(item.href! + '/'))
             ? 'bg-accent text-white'
             : 'text-primary-200 hover:bg-primary-800 hover:text-white'
         )}
