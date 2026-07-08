@@ -16,21 +16,25 @@ interface OwnerSalary {
   note: string | null
 }
 
-interface OwnerInvoice {
+// Příjem vystavený majitelem (billed_to) — propíše se do platu.
+interface OwnerIncome {
   id: string
-  owner_name: string
-  description: string | null
   client: string | null
-  amount: number
+  project_name: string | null
+  amount: number | null
   month: string
-  created_at: string
+  billed_to: string | null
+  status: string | null
 }
 
 const DEFAULT_OWNERS = ['Jan Kolář', 'Martin Remeš']
 
+// income.billed_to používá zkratky (kvůli check constraintu) → mapování na jméno majitele
+const BILLED_TO_OWNER: Record<string, string> = { Honza: 'Jan Kolář', Martin: 'Martin Remeš' }
+
 export default function SalariesPage() {
   const [salaries, setSalaries] = useState<OwnerSalary[]>([])
-  const [invoices, setInvoices] = useState<OwnerInvoice[]>([])
+  const [ownerIncome, setOwnerIncome] = useState<OwnerIncome[]>([])
   const [loading, setLoading] = useState(true)
   const [year, setYear] = useState(new Date().getFullYear())
   const [savingKey, setSavingKey] = useState<string | null>(null)
@@ -39,12 +43,20 @@ export default function SalariesPage() {
 
   async function fetchSalaries() {
     setLoading(true)
-    const [salRes, invRes] = await Promise.all([
+    const [salRes, incRes] = await Promise.all([
       fetch(`/api/costs/salaries?year=${year}`),
-      fetch(`/api/costs/owner-invoices?year=${year}`),
+      fetch(`/api/income?year=${year}`),
     ])
     if (salRes.ok) setSalaries(await salRes.json())
-    if (invRes.ok) setInvoices(await invRes.json())
+    if (incRes.ok) {
+      const all: OwnerIncome[] = await incRes.json()
+      // Jen příjmy vystavené majitelem (ne firmou) v daném roce; billed_to zkratku převedeme na jméno
+      setOwnerIncome(
+        all
+          .filter(i => i.billed_to && BILLED_TO_OWNER[i.billed_to] && new RegExp(`,${year}$`).test(i.month))
+          .map(i => ({ ...i, billed_to: BILLED_TO_OWNER[i.billed_to!] }))
+      )
+    }
     setLoading(false)
   }
 
@@ -150,37 +162,18 @@ export default function SalariesPage() {
 
   const gridTotal = Object.values(totalsByOwner).reduce((s, o) => s + o.total, 0)
   const paidTotal = Object.values(totalsByOwner).reduce((s, o) => s + o.paid, 0)
-  const invoicesTotal = invoices.reduce((s, i) => s + (i.amount ?? 0), 0)
-  const grandTotal = gridTotal + invoicesTotal
+  const incomeTotal = ownerIncome.reduce((s, i) => s + (i.amount ?? 0), 0)
+  const grandTotal = gridTotal + incomeTotal
+
+  // Příjmy majitelů po vlastníkovi (pro součet do platu)
+  const incomeByOwner = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const i of ownerIncome) m[i.billed_to!] = (m[i.billed_to!] ?? 0) + (i.amount ?? 0)
+    return m
+  }, [ownerIncome])
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
-
-  // ── Faktury majitelů (ruční tabulka) ──────────────────────────────────
-  const [invForm, setInvForm] = useState({ owner_name: '', description: '', client: '', amount: '', month: getCurrentMonth() })
-  const [addingInvoice, setAddingInvoice] = useState(false)
-
-  async function addInvoice() {
-    const amount = parseFloat(invForm.amount.replace(/\s/g, '').replace(',', '.')) || 0
-    if (!invForm.owner_name || amount <= 0) return
-    setAddingInvoice(true)
-    const res = await fetch('/api/costs/owner-invoices', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...invForm, amount }),
-    })
-    if (res.ok) {
-      const created: OwnerInvoice = await res.json()
-      setInvoices(prev => [created, ...prev])
-      setInvForm(f => ({ ...f, description: '', client: '', amount: '' }))
-    }
-    setAddingInvoice(false)
-  }
-
-  async function deleteInvoice(id: string) {
-    await fetch(`/api/costs/owner-invoices?id=${id}`, { method: 'DELETE' })
-    setInvoices(prev => prev.filter(i => i.id !== id))
-  }
 
   return (
     <div className="p-8 space-y-6">
@@ -191,7 +184,7 @@ export default function SalariesPage() {
           <p className="text-sm text-gray-500 mt-1">
             Rok {year}: <span className="font-semibold text-red-600">{formatCZK(grandTotal)}</span>
             <span className="ml-2 text-xs text-muted-foreground">
-              · platy {formatCZK(gridTotal)}{invoicesTotal > 0 && <> + faktury {formatCZK(invoicesTotal)}</>}
+              · mřížka {formatCZK(gridTotal)}{incomeTotal > 0 && <> + z příjmů {formatCZK(incomeTotal)}</>}
               {' · '}vyplaceno {formatCZK(paidTotal)} ({gridTotal > 0 ? Math.round((paidTotal / gridTotal) * 100) : 0} %)
             </span>
           </p>
@@ -351,99 +344,56 @@ export default function SalariesPage() {
         Plat lze pozdějí napárovat s bankovní transakcí přes detail.
       </p>
 
-      {/* ── Faktury majitelů (ruční) ────────────────────────────────────── */}
+      {/* ── Faktury majitelů z Příjmů (billed_to = majitel) ─────────────── */}
       <div className="rounded-xl border bg-white overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
-          <h2 className="font-semibold text-sm">Faktury majitelů {year}</h2>
-          <span className="text-xs text-muted-foreground">
-            {invoices.length} položek · <span className="font-semibold text-red-600">{formatCZK(invoicesTotal)}</span>
-          </span>
-        </div>
-
-        {/* Přidání řádku */}
-        <div className="grid grid-cols-[1.2fr_1.6fr_1.4fr_0.8fr_1fr_auto] gap-2 px-4 py-3 border-b bg-white items-center">
-          <select
-            value={invForm.owner_name}
-            onChange={e => setInvForm(f => ({ ...f, owner_name: e.target.value }))}
-            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm bg-white"
-          >
-            <option value="">Kdo…</option>
-            {owners.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <input
-            value={invForm.description}
-            onChange={e => setInvForm(f => ({ ...f, description: e.target.value }))}
-            placeholder="Za co (popis)"
-            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
-          />
-          <input
-            value={invForm.client}
-            onChange={e => setInvForm(f => ({ ...f, client: e.target.value }))}
-            placeholder="Klient"
-            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm"
-          />
-          <select
-            value={invForm.month}
-            onChange={e => setInvForm(f => ({ ...f, month: e.target.value }))}
-            className="rounded-md border border-gray-200 px-2 py-1.5 text-sm bg-white capitalize"
-          >
-            {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
-          </select>
-          <div className="relative">
-            <input
-              value={invForm.amount}
-              onChange={e => setInvForm(f => ({ ...f, amount: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addInvoice()}
-              placeholder="0"
-              inputMode="numeric"
-              className="w-full text-right rounded-md border border-gray-200 pl-2 pr-7 py-1.5 text-sm tabular-nums"
-            />
-            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">Kč</span>
+          <div>
+            <h2 className="font-semibold text-sm">Faktury majitelů {year}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Příjmy vystavené majitelem (pole „Fakturuje&ldquo; v <a href="/income" className="text-blue-600 hover:underline">Příjmy&nbsp;&amp;&nbsp;Projekty</a>) — přičítá se do platu nahoře.
+            </p>
           </div>
-          <Button size="sm" onClick={addInvoice} disabled={addingInvoice || !invForm.owner_name}>
-            <Plus className="h-4 w-4" />
-          </Button>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {ownerIncome.length} položek · <span className="font-semibold text-red-600">{formatCZK(incomeTotal)}</span>
+          </span>
         </div>
 
         <table className="w-full text-sm">
           <thead className="bg-gray-50/60 border-b">
             <tr className="text-xs text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2 text-left font-medium">Kdo vystavuje</th>
-              <th className="px-4 py-2 text-left font-medium">Za co</th>
+              <th className="px-4 py-2 text-left font-medium">Za co (projekt)</th>
               <th className="px-4 py-2 text-left font-medium">Klient</th>
               <th className="px-4 py-2 text-left font-medium">Měsíc</th>
               <th className="px-4 py-2 text-right font-medium">Kolik</th>
-              <th className="w-8" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {invoices.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Zatím žádné faktury — přidej nahoře</td></tr>
-            ) : invoices.map(inv => (
-              <tr key={inv.id} className="group hover:bg-gray-50/70">
-                <td className="px-4 py-2.5 font-medium text-gray-900">{inv.owner_name}</td>
-                <td className="px-4 py-2.5 text-gray-600">{inv.description ?? '—'}</td>
-                <td className="px-4 py-2.5 text-gray-600">{inv.client ?? '—'}</td>
-                <td className="px-4 py-2.5 text-gray-500 capitalize whitespace-nowrap">{formatMonth(inv.month)}</td>
-                <td className="px-4 py-2.5 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">{formatCZK(inv.amount)}</td>
-                <td className="px-2 py-2.5">
-                  <button
-                    onClick={() => deleteInvoice(inv.id)}
-                    title="Smazat"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </td>
+            {ownerIncome.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                Zatím nic — v <a href="/income" className="text-blue-600 hover:underline">Příjmech</a> nastav u projektu „Fakturuje: Jan Kolář / Martin Remeš&ldquo;
+              </td></tr>
+            ) : ownerIncome.map(i => (
+              <tr key={i.id} className="hover:bg-gray-50/70">
+                <td className="px-4 py-2.5 font-medium text-gray-900">{i.billed_to}</td>
+                <td className="px-4 py-2.5 text-gray-600">{i.project_name ?? '—'}</td>
+                <td className="px-4 py-2.5 text-gray-600">{i.client ?? '—'}</td>
+                <td className="px-4 py-2.5 text-gray-500 capitalize whitespace-nowrap">{formatMonth(i.month)}</td>
+                <td className="px-4 py-2.5 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">{formatCZK(i.amount ?? 0)}</td>
               </tr>
             ))}
           </tbody>
-          {invoices.length > 0 && (
+          {ownerIncome.length > 0 && (
             <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+              {owners.filter(o => (incomeByOwner[o] ?? 0) > 0).map(o => (
+                <tr key={o} className="text-xs text-gray-500">
+                  <td colSpan={4} className="px-4 py-1.5">z toho {o}</td>
+                  <td className="px-4 py-1.5 text-right tabular-nums">{formatCZK(incomeByOwner[o] ?? 0)}</td>
+                </tr>
+              ))}
               <tr>
-                <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem faktury</td>
-                <td className="px-4 py-2.5 text-right font-bold text-red-600 tabular-nums">{formatCZK(invoicesTotal)}</td>
-                <td />
+                <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Celkem z příjmů</td>
+                <td className="px-4 py-2.5 text-right font-bold text-red-600 tabular-nums">{formatCZK(incomeTotal)}</td>
               </tr>
             </tfoot>
           )}

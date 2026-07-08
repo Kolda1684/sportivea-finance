@@ -167,15 +167,16 @@ export function AddIncomeModal({ open, onClose, onSaved, editing }: AddIncomeMod
           </div>
 
           <div className="space-y-1">
-            <Label>Fakturujeme na</Label>
+            <Label>Fakturuje (vystavuje)</Label>
             <Select value={form.billed_to} onValueChange={v => set('billed_to', v)}>
               <SelectTrigger><SelectValue placeholder="Vybrat…" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Martin">Martin</SelectItem>
-                <SelectItem value="Honza">Honza</SelectItem>
-                <SelectItem value="Sportivea">Sportivea</SelectItem>
+                <SelectItem value="Honza">Jan Kolář</SelectItem>
+                <SelectItem value="Martin">Martin Remeš</SelectItem>
+                <SelectItem value="Sportivea">Sportivea (firma)</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">Když vystavuje majitel, přičte se mu to do platu.</p>
           </div>
 
           <div className="space-y-1">
