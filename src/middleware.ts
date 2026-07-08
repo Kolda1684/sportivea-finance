@@ -6,6 +6,7 @@ import {
   signRoleCookie,
   verifyRoleCookie,
 } from '@/lib/role-cache'
+import { verifySupabaseToken } from '@/lib/jwt-verify'
 
 const PUBLIC_ROUTES = ['/login']
 const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/logout', '/api/notion/webhook']
@@ -119,9 +120,23 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // 1) Rychlá cesta: lokální ověření access tokenu (podpis + expirace přes JWKS,
+  //    žádný network call). getSession() jen parsuje cookie.
+  const { data: { session } } = await supabase.auth.getSession()
+  let userId: string | null = null
+  if (session?.access_token) {
+    const verified = await verifySupabaseToken(session.access_token)
+    if (verified) userId = verified.userId
+  }
 
-  if (!user) {
+  // 2) Fallback: expirovaný/neplatný token → getUser() (síťové ověření + refresh
+  //    tokenů; nové cookies se zapíšou přes setAll výše).
+  if (!userId) {
+    const { data: { user } } = await supabase.auth.getUser()
+    userId = user?.id ?? null
+  }
+
+  if (!userId) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -130,20 +145,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Role: nejprve zkus podepsanou cache cookie (HMAC, TTL 60 s) — ušetří DB query.
+  // Role + jméno: nejprve podepsaná cache cookie (HMAC, TTL 60 s) — ušetří DB query.
   // Při miss/expire dotaz a refresh cookie.
-  const cachedRole = await verifyRoleCookie(request.cookies.get(ROLE_COOKIE_NAME)?.value, user.id)
+  const cached = await verifyRoleCookie(request.cookies.get(ROLE_COOKIE_NAME)?.value, userId)
   let role: string
-  if (cachedRole) {
-    role = cachedRole
+  let userName: string
+  if (cached) {
+    role = cached.role
+    userName = cached.name
   } else {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
-      .eq('id', user.id)
+      .select('role, name')
+      .eq('id', userId)
       .single()
     role = profile?.role ?? 'editor'
-    response.cookies.set(ROLE_COOKIE_NAME, await signRoleCookie(user.id, role), {
+    userName = profile?.name ?? ''
+    response.cookies.set(ROLE_COOKIE_NAME, await signRoleCookie(userId, role, userName), {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
@@ -151,6 +169,15 @@ export async function middleware(request: NextRequest) {
       path: '/',
     })
   }
+
+  // Identita pro server komponenty (layout) — ušetří getUser + profiles query per render.
+  // Hodnoty URI-encoded (hlavičky musí být ASCII).
+  request.headers.set('x-user-id', userId)
+  request.headers.set('x-user-role', role)
+  request.headers.set('x-user-name', encodeURIComponent(userName))
+  const withHeaders = NextResponse.next({ request })
+  // Přenes cookies nastavené dříve (role cache / token refresh) na novou response
+  for (const c of response.cookies.getAll()) withHeaders.cookies.set(c)
 
   // Root přesměrování — admin jde na dashboard, editor na tasky
   if (pathname === '/') {
@@ -168,7 +195,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return response
+  return withHeaders
 }
 
 export const config = {

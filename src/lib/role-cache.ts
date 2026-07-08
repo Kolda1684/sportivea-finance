@@ -47,17 +47,22 @@ function timingSafeEqual(a: string, b: string): boolean {
 export interface RoleCachePayload {
   userId: string
   role: string
+  name: string
   exp: number
 }
 
-export async function signRoleCookie(userId: string, role: string): Promise<string> {
-  const payload: RoleCachePayload = { userId, role, exp: Date.now() + TTL_MS }
-  const body = stringToBase64Url(JSON.stringify(payload))
+export async function signRoleCookie(userId: string, role: string, name = ''): Promise<string> {
+  const payload: RoleCachePayload = { userId, role, name, exp: Date.now() + TTL_MS }
+  // btoa neumí ne-latin1 znaky (č, ř…) → URI-encode payloadu
+  const body = stringToBase64Url(encodeURIComponent(JSON.stringify(payload)))
   const sig = await hmacSha256(body, getSecret())
   return `${body}.${sig}`
 }
 
-export async function verifyRoleCookie(value: string | undefined, userId: string): Promise<string | null> {
+export async function verifyRoleCookie(
+  value: string | undefined,
+  userId: string
+): Promise<{ role: string; name: string } | null> {
   if (!value) return null
   const [body, sig] = value.split('.')
   if (!body || !sig) return null
@@ -71,10 +76,11 @@ export async function verifyRoleCookie(value: string | undefined, userId: string
   if (!timingSafeEqual(sig, expected)) return null
 
   try {
-    const payload = JSON.parse(base64UrlToString(body)) as RoleCachePayload
+    const payload = JSON.parse(decodeURIComponent(base64UrlToString(body))) as RoleCachePayload
     if (payload.userId !== userId) return null
     if (payload.exp < Date.now()) return null
-    return payload.role
+    if (typeof payload.name !== 'string') return null // stará verze cookie → refresh z DB
+    return { role: payload.role, name: payload.name }
   } catch {
     return null
   }
