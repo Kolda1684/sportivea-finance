@@ -61,6 +61,54 @@ export async function fetchFioFull(
   return data.accountStatement
 }
 
+// ── Zůstatky účtů ────────────────────────────────────────────────────────────
+// Fio limituje 1 request / 30 s / token → cache na úrovni modulu (přežívá
+// requesty v rámci téže lambdy). Při chybě vrací poslední známou hodnotu.
+
+export interface FioBalance {
+  envKey: string
+  accountId: string
+  currency: string
+  balance: number
+  fetchedAt: string
+}
+
+const balanceCache = new Map<string, { data: FioBalance; ts: number }>()
+const BALANCE_TTL_MS = 10 * 60 * 1000
+
+export async function getFioBalances(): Promise<FioBalance[]> {
+  const tokens: { envKey: string; token: string }[] = []
+  if (process.env.FIO_ucet_1) tokens.push({ envKey: 'FIO_ucet_1', token: process.env.FIO_ucet_1 })
+  if (process.env.FIO_ucet_2) tokens.push({ envKey: 'FIO_ucet_2', token: process.env.FIO_ucet_2 })
+
+  const today = new Date().toISOString().slice(0, 10)
+  const results: FioBalance[] = []
+
+  for (const { envKey, token } of tokens) {
+    const cached = balanceCache.get(envKey)
+    if (cached && Date.now() - cached.ts < BALANCE_TTL_MS) {
+      results.push(cached.data)
+      continue
+    }
+    try {
+      const info = (await fetchFioFull(token, today, today)).info
+      const data: FioBalance = {
+        envKey,
+        accountId: `${info.accountId}/${info.bankId}`,
+        currency: info.currency,
+        balance: info.closingBalance,
+        fetchedAt: new Date().toISOString(),
+      }
+      balanceCache.set(envKey, { data, ts: Date.now() })
+      results.push(data)
+    } catch {
+      // rate limit / výpadek — použij poslední známou hodnotu, jinak účet přeskoč
+      if (cached) results.push(cached.data)
+    }
+  }
+  return results
+}
+
 export function mapFioTransactionToDb(t: FioTransaction) {
   return {
     fio_id: t.column22?.value?.toString() ?? null,

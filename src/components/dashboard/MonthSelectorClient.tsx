@@ -7,14 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface MonthSelectorClientProps {
   currentMonth: string
+  basePath?: string
 }
 
-export function MonthSelectorClient({ currentMonth }: MonthSelectorClientProps) {
+export function MonthSelectorClient({ currentMonth, basePath = '/dashboard' }: MonthSelectorClientProps) {
   const router = useRouter()
   const months = getLastNMonths(24)
 
   function go(month: string) {
-    router.push(`/dashboard?month=${month}`)
+    router.push(`${basePath}?month=${month}`)
   }
 
   const idx = months.indexOf(currentMonth)
