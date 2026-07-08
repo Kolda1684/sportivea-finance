@@ -20,6 +20,7 @@ const INTERNAL_CRON_API_ROUTES = [
 // Tyto routes jsou pouze pro adminy
 const ADMIN_ONLY_ROUTES = [
   '/dashboard',
+  '/ziskovost',
   '/income',
   '/costs',
   '/invoices',

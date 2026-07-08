@@ -2,6 +2,7 @@ import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getCurrentMonth, formatMonth } from '@/lib/utils'
 import { KpiCard } from '@/components/dashboard/KpiCard'
 import { YearlyBarChart } from '@/components/dashboard/YearlyBarChart'
+import { PnlTable } from '@/components/dashboard/PnlTable'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
 import { IncomesSection } from '@/components/dashboard/IncomesSection'
 import { EmployeesTable } from '@/components/dashboard/EmployeesTable'
@@ -20,9 +21,19 @@ interface DashboardSummary {
   varByMember: { member: string; count: number; hours: number; price: number }[]
 }
 
-interface YearMonth { month: string; income: number; variableCosts: number; extraCosts: number; salaries: number }
+interface YearMonth { month: string; income: number; wages: number; travel: number; extraCosts: number; salaries: number }
 interface YearBar { monthIdx: number; income: number; costs: number }
 interface YearTotals { income: number; variable: number; extra: number; fixed: number; salaries: number }
+export interface PnlMonth {
+  monthIdx: number
+  income: number
+  wages: number
+  travel: number
+  fixed: number
+  extra: number
+  salaries: number
+  profit: number
+}
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
@@ -39,23 +50,42 @@ async function getDashboardData(month: string) {
   return summary
 }
 
-async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: YearTotals }> {
+// variable_costs má za rok víc než 1000 řádků (Supabase limit na dotaz) → stránkování
+async function fetchAllVariableCosts(year: number) {
+  const supabase = createAdminSupabaseClient()
+  const rows: { month: string; price: number | null; task_type: string | null }[] = []
+  const PAGE = 1000
+  for (let page = 0; ; page++) {
+    const { data } = await supabase
+      .from('variable_costs')
+      .select('month, price, task_type')
+      .like('month', `%,${year}`)
+      .order('id')
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    rows.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
+  }
+  return rows
+}
+
+async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: YearTotals; pnl: PnlMonth[] }> {
   const supabase = createAdminSupabaseClient()
   const yearSuffix = `,${year}`
 
-  const [incomes, variables, extras, fixed, salaries] = await Promise.all([
+  const [incomes, variableRows, extras, fixed, salaries] = await Promise.all([
     supabase.from('income').select('month, amount').like('month', `%${yearSuffix}`),
-    supabase.from('variable_costs').select('month, price').like('month', `%${yearSuffix}`),
+    fetchAllVariableCosts(year),
     supabase.from('extra_costs').select('month, amount').like('month', `%${yearSuffix}`),
     supabase.from('fixed_costs').select('amount').eq('active', true),
     supabase.from('owner_salaries').select('month, amount').like('month', `%${yearSuffix}`),
   ])
+  const variables = { data: variableRows }
 
   const fixedMonthly = (fixed.data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
 
   const byMonth = new Map<number, YearMonth>()
   for (let m = 1; m <= 12; m++) {
-    byMonth.set(m, { month: `${m},${year}`, income: 0, variableCosts: 0, extraCosts: 0, salaries: 0 })
+    byMonth.set(m, { month: `${m},${year}`, income: 0, wages: 0, travel: 0, extraCosts: 0, salaries: 0 })
   }
   ;(incomes.data ?? []).forEach(r => {
     const idx = parseInt(String(r.month).split(',')[0])
@@ -63,7 +93,10 @@ async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: Y
   })
   ;(variables.data ?? []).forEach(r => {
     const idx = parseInt(String(r.month).split(',')[0])
-    const m = byMonth.get(idx); if (m) m.variableCosts += Number(r.price ?? 0)
+    const m = byMonth.get(idx)
+    if (!m) return
+    if (r.task_type === 'Cesťák') m.travel += Number(r.price ?? 0)
+    else m.wages += Number(r.price ?? 0)
   })
   ;(extras.data ?? []).forEach(r => {
     const idx = parseInt(String(r.month).split(',')[0])
@@ -77,18 +110,35 @@ async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: Y
   const bars: YearBar[] = Array.from(byMonth.entries()).map(([monthIdx, agg]) => ({
     monthIdx,
     income: agg.income,
-    costs: agg.variableCosts + agg.extraCosts + agg.salaries + fixedMonthly,
+    costs: agg.wages + agg.travel + agg.extraCosts + agg.salaries + fixedMonthly,
   }))
 
   const totals: YearTotals = {
     income: bars.reduce((s, b) => s + b.income, 0),
-    variable: Array.from(byMonth.values()).reduce((s, m) => s + m.variableCosts, 0),
+    variable: Array.from(byMonth.values()).reduce((s, m) => s + m.wages + m.travel, 0),
     extra: Array.from(byMonth.values()).reduce((s, m) => s + m.extraCosts, 0),
     fixed: fixedMonthly * 12,
     salaries: Array.from(byMonth.values()).reduce((s, m) => s + m.salaries, 0),
   }
 
-  return { bars, totals }
+  // P&L po měsících — jen měsíce, kde se něco dělo (fixní jsou konstantní, ty aktivitu neurčují)
+  const pnl: PnlMonth[] = Array.from(byMonth.entries())
+    .filter(([, m]) => m.income > 0 || m.wages > 0 || m.travel > 0 || m.extraCosts > 0 || m.salaries > 0)
+    .map(([monthIdx, m]) => {
+      const costs = m.wages + m.travel + fixedMonthly + m.extraCosts + m.salaries
+      return {
+        monthIdx,
+        income: m.income,
+        wages: m.wages,
+        travel: m.travel,
+        fixed: fixedMonthly,
+        extra: m.extraCosts,
+        salaries: m.salaries,
+        profit: m.income - costs,
+      }
+    })
+
+  return { bars, totals, pnl }
 }
 
 async function getMonthIncomes(month: string): Promise<Income[]> {
@@ -133,6 +183,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
       {/* 1. Roční graf — celý rok (bar / pie toggle) */}
       <YearlyBarChart data={yearly.bars} totals={yearly.totals} year={year} />
+
+      {/* Výsledovka po měsících */}
+      <PnlTable pnl={yearly.pnl} year={year} />
 
       {/* 2. KPI — aktuální měsíc */}
       <section className="space-y-3">

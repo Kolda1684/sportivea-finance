@@ -15,6 +15,8 @@ import {
   Landmark,
   Wallet,
   FileText,
+  Percent,
+  ArrowDownUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -30,6 +32,8 @@ const adminNavItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/income', label: 'Příjmy a projekty', icon: DollarSign },
   { href: '/costs', label: 'Přehled nákladů', icon: TrendingDown, exact: true },
+  { href: '/ziskovost', label: 'Ziskovost klientů', icon: Percent },
+  { href: '/cashflow', label: 'Cash flow', icon: ArrowDownUp },
   { href: '/costs/salaries', label: 'Platy majitelů', icon: Wallet },
   {
     label: 'Faktury',

@@ -1,9 +1,12 @@
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getCurrentMonth, formatCZK, formatDate, formatMonth, getLastNMonths, monthBounds } from '@/lib/utils'
+import { getFioBalances, type FioBalance } from '@/lib/fio'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { TrendingUp, TrendingDown, Clock, Banknote, RefreshCw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Clock, Banknote, RefreshCw, Landmark, CalendarRange } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+export const dynamic = 'force-dynamic'
 
 const PENDING_STATUSES = ['cekame', 'potvrzeno', 'vystaveno']
 
@@ -83,9 +86,79 @@ async function getCashflowData(month: string) {
   }
 }
 
+// ── 3měsíční výhled ──────────────────────────────────────────────────────────
+// Očekávané příjmy = neuhrazené vydané faktury podle splatnosti (po splatnosti
+// se počítají do aktuálního měsíce). Očekávané výdaje = fixní + průměr
+// (mzdy+cestovné+extra) a platů majitelů za poslední 3 měsíce.
+
+interface OutlookMonth {
+  month: string
+  expectedIn: number
+  expectedOut: number
+  net: number
+  projectedBalance: number
+}
+
+async function getOutlook(totalBalance: number | null) {
+  const supabase = createAdminSupabaseClient()
+  const now = new Date()
+  const nextMonths: string[] = []
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+    nextMonths.push(`${d.getMonth() + 1},${d.getFullYear()}`)
+  }
+  const last3: string[] = []
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    last3.push(`${d.getMonth() + 1},${d.getFullYear()}`)
+  }
+
+  const [unpaidRes, varRes, extraRes, salRes, fixedRes] = await Promise.all([
+    supabase.from('invoices').select('total, due_on').neq('status', 'paid'),
+    supabase.from('variable_costs').select('month, price').in('month', last3),
+    supabase.from('extra_costs').select('month, amount').in('month', last3),
+    supabase.from('owner_salaries').select('month, amount').in('month', last3),
+    supabase.from('fixed_costs').select('amount').eq('active', true),
+  ])
+
+  const fixedMonthly = (fixedRes.data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
+  const avg = (rows: { month: string; total: number }[]) =>
+    last3.length ? rows.reduce((s, r) => s + r.total, 0) / last3.length : 0
+  const varAvg = avg(last3.map(m => ({ month: m, total: (varRes.data ?? []).filter(r => r.month === m).reduce((s, r) => s + Number(r.price ?? 0), 0) })))
+  const extraAvg = avg(last3.map(m => ({ month: m, total: (extraRes.data ?? []).filter(r => r.month === m).reduce((s, r) => s + Number(r.amount ?? 0), 0) })))
+  const salAvg = avg(last3.map(m => ({ month: m, total: (salRes.data ?? []).filter(r => r.month === m).reduce((s, r) => s + Number(r.amount ?? 0), 0) })))
+  const expectedOutMonthly = fixedMonthly + varAvg + extraAvg + salAvg
+
+  // Neuhrazené faktury do měsíců podle splatnosti; po splatnosti → aktuální měsíc
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const inByMonth = new Map<string, number>(nextMonths.map(m => [m, 0]))
+  let overdue = 0
+  for (const inv of unpaidRes.data ?? []) {
+    const due = inv.due_on ? new Date(inv.due_on) : null
+    const total = Number(inv.total ?? 0)
+    if (!due || due < monthStart) { overdue += total; continue }
+    const key = `${due.getMonth() + 1},${due.getFullYear()}`
+    if (inByMonth.has(key)) inByMonth.set(key, (inByMonth.get(key) ?? 0) + total)
+    // splatnost za horizontem 3 měsíců se do výhledu nepočítá
+  }
+  inByMonth.set(nextMonths[0], (inByMonth.get(nextMonths[0]) ?? 0) + overdue)
+
+  let running = totalBalance ?? 0
+  const months: OutlookMonth[] = nextMonths.map(m => {
+    const expectedIn = inByMonth.get(m) ?? 0
+    const net = expectedIn - expectedOutMonthly
+    running += net
+    return { month: m, expectedIn, expectedOut: expectedOutMonthly, net, projectedBalance: running }
+  })
+
+  return { months, overdue, expectedOutMonthly, hasBalance: totalBalance != null }
+}
+
 export default async function CashflowPage({ searchParams }: { searchParams: { month?: string } }) {
   const month = searchParams.month ?? getCurrentMonth()
-  const d = await getCashflowData(month)
+  const [d, balances] = await Promise.all([getCashflowData(month), getFioBalances()])
+  const totalBalance = balances.length > 0 ? balances.reduce((s, b) => s + b.balance, 0) : null
+  const outlook = await getOutlook(totalBalance)
   const monthLabel = formatMonth(month).charAt(0).toUpperCase() + formatMonth(month).slice(1)
   const maxTrend = Math.max(...d.trend.map(t => Math.max(t.income, t.expense)), 1)
 
@@ -94,11 +167,90 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
       {/* Hlavička */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Cashflow</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Cash flow</h1>
           <p className="text-sm text-gray-500 mt-1">Skutečné peněžní toky — kdy peníze přišly na účet, ne kdy vznikl nárok</p>
         </div>
-        <MonthSelectorClient currentMonth={month} />
+        <MonthSelectorClient currentMonth={month} basePath="/cashflow" />
       </div>
+
+      {/* Zůstatky na účtech (Fio, živě) */}
+      <Card className="border-blue-100 bg-blue-50/40">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-blue-100 p-2">
+                <Landmark className="h-5 w-5 text-blue-700" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Na účtech teď (Fio)</p>
+                <p className="text-2xl font-bold text-blue-900">
+                  {totalBalance != null ? formatCZK(totalBalance) : 'Nedostupné'}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-6">
+              {balances.map(b => (
+                <div key={b.envKey} className="text-right">
+                  <p className="text-xs text-muted-foreground font-mono">{b.accountId}</p>
+                  <p className="text-sm font-semibold tabular-nums">{formatCZK(b.balance)}</p>
+                </div>
+              ))}
+              {balances.length === 0 && (
+                <p className="text-xs text-muted-foreground max-w-[220px]">
+                  Fio API teď neodpovídá (limit 1 dotaz/30 s) — obnov stránku za chvíli.
+                </p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 3měsíční výhled */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarRange className="h-4 w-4 text-blue-500" />
+            Výhled na 3 měsíce
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Příjmy = neuhrazené vydané faktury podle splatnosti{outlook.overdue > 0 && <> (z toho <span className="font-semibold text-orange-600">{formatCZK(outlook.overdue)} po splatnosti</span>, počítáno do aktuálního měsíce)</>}.
+            Výdaje = fixní + průměr mezd, extra a platů za poslední 3 měsíce ({formatCZK(outlook.expectedOutMonthly)}/měsíc).
+          </p>
+        </CardHeader>
+        <CardContent>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide">
+                <th className="pb-2 text-left font-semibold">Měsíc</th>
+                <th className="pb-2 text-right font-semibold">Očekávané příjmy</th>
+                <th className="pb-2 text-right font-semibold">Očekávané výdaje</th>
+                <th className="pb-2 text-right font-semibold">Netto</th>
+                {outlook.hasBalance && <th className="pb-2 text-right font-semibold">Zůstatek na konci</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {outlook.months.map(m => (
+                <tr key={m.month} className="hover:bg-gray-50/70">
+                  <td className="py-2.5 font-medium capitalize">{formatMonth(m.month)}</td>
+                  <td className="py-2.5 text-right tabular-nums text-green-700">{formatCZK(m.expectedIn)}</td>
+                  <td className="py-2.5 text-right tabular-nums text-red-600">{formatCZK(m.expectedOut)}</td>
+                  <td className={cn('py-2.5 text-right tabular-nums font-semibold', m.net >= 0 ? 'text-green-700' : 'text-red-600')}>
+                    {m.net >= 0 ? '+' : ''}{formatCZK(m.net)}
+                  </td>
+                  {outlook.hasBalance && (
+                    <td className={cn('py-2.5 text-right tabular-nums font-bold', m.projectedBalance >= 0 ? 'text-blue-900' : 'text-red-600')}>
+                      {formatCZK(m.projectedBalance)}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-muted-foreground">
+            ⚠ Odhad — nepočítá s budoucími fakturami, které ještě nejsou vystavené, ani s DPH.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* KPI */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
