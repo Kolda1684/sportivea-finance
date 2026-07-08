@@ -10,12 +10,12 @@ import {
   ChevronRight,
   LogOut,
   Sparkles,
-  CheckSquare,
-  Calendar,
   Users,
   User,
   Settings,
   Landmark,
+  Wallet,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -29,14 +29,7 @@ interface SidebarProps {
 
 const adminNavItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  {
-    label: 'Příjmy & Projekty',
-    icon: DollarSign,
-    children: [
-      { href: '/income', label: 'Přehled' },
-      { href: '/invoices', label: 'Vydané faktury' },
-    ],
-  },
+  { href: '/income', label: 'Příjmy a projekty', icon: DollarSign },
   {
     label: 'Náklady',
     icon: TrendingDown,
@@ -45,17 +38,19 @@ const adminNavItems = [
       { href: '/costs/variable', label: 'Variabilní' },
       { href: '/costs/fixed', label: 'Fixní' },
       { href: '/costs/extra', label: 'Extra' },
-      { href: '/costs/salaries', label: 'Platy majitelů' },
+    ],
+  },
+  { href: '/costs/salaries', label: 'Platy majitelů', icon: Wallet },
+  {
+    label: 'Faktury',
+    icon: FileText,
+    children: [
+      { href: '/invoices', label: 'Vydané faktury' },
       { href: '/invoices/expense', label: 'Přijaté faktury' },
     ],
   },
   { href: '/invoices/upload', label: 'AI Upload faktur', icon: Sparkles },
   { href: '/banking', label: 'Bankovní výpis', icon: Landmark },
-]
-
-const sharedNavItems = [
-  { href: '/tasks', label: 'Tasky', icon: CheckSquare },
-  { href: '/calendar', label: 'Kalendář', icon: Calendar },
 ]
 
 const adminOnlyBottomItems = [
@@ -71,10 +66,10 @@ const editorNavItems = [
 export function Sidebar({ role, userName }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const isInvoicesIncome = pathname === '/invoices' || (pathname.startsWith('/invoices/') && !pathname.startsWith('/invoices/expense') && !pathname.startsWith('/invoices/upload'))
+  const isInvoicesPage = pathname.startsWith('/invoices') && !pathname.startsWith('/invoices/upload')
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    'Příjmy & Projekty': pathname.startsWith('/income') || isInvoicesIncome,
-    Náklady: pathname.startsWith('/costs') || pathname.startsWith('/invoices/expense'),
+    Náklady: pathname.startsWith('/costs') && !pathname.startsWith('/costs/salaries'),
+    Faktury: isInvoicesPage,
   })
 
   function toggleGroup(label: string) {
@@ -89,7 +84,6 @@ export function Sidebar({ role, userName }: SidebarProps) {
 
   const isAdmin = role === 'admin'
   const topItems = isAdmin ? adminNavItems : []
-  const middleItems = sharedNavItems
   const bottomExtraItems = isAdmin ? adminOnlyBottomItems : editorNavItems
 
   function renderItem(item: { href?: string; label: string; icon: React.ComponentType<{ className?: string }>; children?: { href: string; label: string }[] }) {
@@ -139,7 +133,7 @@ export function Sidebar({ role, userName }: SidebarProps) {
         href={item.href!}
         className={cn(
           'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-          pathname === item.href || (item.href !== '/tasks' && pathname.startsWith(item.href!))
+          pathname === item.href || pathname.startsWith(item.href! + '/')
             ? 'bg-accent text-white'
             : 'text-primary-200 hover:bg-primary-800 hover:text-white'
         )}
@@ -165,11 +159,6 @@ export function Sidebar({ role, userName }: SidebarProps) {
 
       {/* Navigace */}
       <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-4 space-y-0.5">
-        {/* Sdílené (tasky + kalendář) vždy nahoře */}
-        <div className="mb-2">
-          {middleItems.map(renderItem)}
-        </div>
-
         {/* Finanční sekce — jen admin */}
         {isAdmin && topItems.length > 0 && (
           <>

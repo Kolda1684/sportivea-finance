@@ -181,7 +181,7 @@ export async function middleware(request: NextRequest) {
 
   // Root přesměrování — admin jde na dashboard, editor na tasky
   if (pathname === '/') {
-    return NextResponse.redirect(new URL(role === 'admin' ? '/dashboard' : '/tasks', request.url))
+    return NextResponse.redirect(new URL(role === 'admin' ? '/dashboard' : '/muj-vykaz', request.url))
   }
 
   // Zkontroluj roli pro admin-only routes
@@ -191,7 +191,7 @@ export async function middleware(request: NextRequest) {
       if (pathname.startsWith('/api/')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       }
-      return NextResponse.redirect(new URL('/tasks', request.url))
+      return NextResponse.redirect(new URL('/muj-vykaz', request.url))
     }
   }
 

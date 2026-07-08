@@ -20,35 +20,42 @@ interface DashboardSummary {
   varByMember: { member: string; count: number; hours: number; price: number }[]
 }
 
-interface YearMonth { month: string; income: number; variableCosts: number; extraCosts: number }
+interface YearMonth { month: string; income: number; variableCosts: number; extraCosts: number; salaries: number }
 interface YearBar { monthIdx: number; income: number; costs: number }
-interface YearTotals { income: number; variable: number; extra: number; fixed: number }
+interface YearTotals { income: number; variable: number; extra: number; fixed: number; salaries: number }
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
 async function getDashboardData(month: string) {
   const supabase = createAdminSupabaseClient()
-  const { data, error } = await supabase.rpc('dashboard_summary', { p_month: month })
-  if (error) throw new Error(`dashboard_summary RPC failed: ${error.message}`)
-  return data as DashboardSummary
+  // RPC dashboard_summary nevrací platy majitelů — dotáhneme paralelně zvlášť
+  const [rpc, salaries] = await Promise.all([
+    supabase.rpc('dashboard_summary', { p_month: month }),
+    supabase.from('owner_salaries').select('amount').eq('month', month),
+  ])
+  if (rpc.error) throw new Error(`dashboard_summary RPC failed: ${rpc.error.message}`)
+  const summary = rpc.data as DashboardSummary
+  summary.totalSalaries = (salaries.data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
+  return summary
 }
 
 async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: YearTotals }> {
   const supabase = createAdminSupabaseClient()
   const yearSuffix = `,${year}`
 
-  const [incomes, variables, extras, fixed] = await Promise.all([
+  const [incomes, variables, extras, fixed, salaries] = await Promise.all([
     supabase.from('income').select('month, amount').like('month', `%${yearSuffix}`),
     supabase.from('variable_costs').select('month, price').like('month', `%${yearSuffix}`),
     supabase.from('extra_costs').select('month, amount').like('month', `%${yearSuffix}`),
     supabase.from('fixed_costs').select('amount').eq('active', true),
+    supabase.from('owner_salaries').select('month, amount').like('month', `%${yearSuffix}`),
   ])
 
   const fixedMonthly = (fixed.data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
 
   const byMonth = new Map<number, YearMonth>()
   for (let m = 1; m <= 12; m++) {
-    byMonth.set(m, { month: `${m},${year}`, income: 0, variableCosts: 0, extraCosts: 0 })
+    byMonth.set(m, { month: `${m},${year}`, income: 0, variableCosts: 0, extraCosts: 0, salaries: 0 })
   }
   ;(incomes.data ?? []).forEach(r => {
     const idx = parseInt(String(r.month).split(',')[0])
@@ -62,11 +69,15 @@ async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: Y
     const idx = parseInt(String(r.month).split(',')[0])
     const m = byMonth.get(idx); if (m) m.extraCosts += Number(r.amount ?? 0)
   })
+  ;(salaries.data ?? []).forEach(r => {
+    const idx = parseInt(String(r.month).split(',')[0])
+    const m = byMonth.get(idx); if (m) m.salaries += Number(r.amount ?? 0)
+  })
 
   const bars: YearBar[] = Array.from(byMonth.entries()).map(([monthIdx, agg]) => ({
     monthIdx,
     income: agg.income,
-    costs: agg.variableCosts + agg.extraCosts + fixedMonthly,
+    costs: agg.variableCosts + agg.extraCosts + agg.salaries + fixedMonthly,
   }))
 
   const totals: YearTotals = {
@@ -74,6 +85,7 @@ async function getYearlyData(year: number): Promise<{ bars: YearBar[]; totals: Y
     variable: Array.from(byMonth.values()).reduce((s, m) => s + m.variableCosts, 0),
     extra: Array.from(byMonth.values()).reduce((s, m) => s + m.extraCosts, 0),
     fixed: fixedMonthly * 12,
+    salaries: Array.from(byMonth.values()).reduce((s, m) => s + m.salaries, 0),
   }
 
   return { bars, totals }
