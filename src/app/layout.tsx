@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import { headers } from 'next/headers'
 import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
 import { AiChatLauncher } from '@/components/chat/AiChatLauncher'
-import { getCurrentUserProfile } from '@/lib/auth-helpers'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -13,9 +13,10 @@ export const metadata: Metadata = {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const profile = await getCurrentUserProfile()
-  const role = profile?.role ?? 'editor'
-  const userName = profile?.name ?? ''
+  // Identitu ověřil middleware a předal v hlavičkách — žádné Supabase cally per render.
+  const h = headers()
+  const role = (h.get('x-user-role') === 'admin' ? 'admin' : 'editor') as 'admin' | 'editor'
+  const userName = decodeURIComponent(h.get('x-user-name') ?? '')
 
   return (
     <html lang="cs">
