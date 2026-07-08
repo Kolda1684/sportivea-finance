@@ -5,12 +5,14 @@ import { getCurrentMonth, dateToMonth } from '@/lib/utils'
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const month = searchParams.get('month')
+  const year = searchParams.get('year')
   const client = searchParams.get('client')
   const status = searchParams.get('status')
   const supabase = createAdminSupabaseClient()
 
   let query = supabase.from('income').select('*').order('created_at', { ascending: false })
   if (month) query = query.eq('month', month)
+  else if (year) query = query.like('month', `%,${year}`)
   if (client) query = query.eq('client', client)
   if (status) query = query.eq('status', status)
 
@@ -33,6 +35,7 @@ export async function POST(req: NextRequest) {
       date: body.date ?? null,
       status: body.status ?? 'cekame',
       note: body.note ?? null,
+      billed_to: body.billed_to || null,
       month: body.month ?? (body.date ? dateToMonth(new Date(body.date)) : getCurrentMonth()),
     })
     .select()
