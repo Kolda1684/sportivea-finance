@@ -11,7 +11,6 @@ import {
   LogOut,
   Sparkles,
   Users,
-  User,
   Settings,
   Landmark,
   Wallet,
@@ -59,9 +58,7 @@ const adminOnlyBottomItems = [
   { href: '/nastaveni/users', label: 'Správa uživatelů', icon: Settings },
 ]
 
-const editorNavItems = [
-  { href: '/muj-vykaz', label: 'Můj výkaz', icon: User },
-]
+const editorNavItems: typeof adminOnlyBottomItems = []
 
 export function Sidebar({ role, userName }: SidebarProps) {
   const pathname = usePathname()
