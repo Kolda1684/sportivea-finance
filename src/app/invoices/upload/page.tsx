@@ -284,9 +284,24 @@ export default function UploadInvoicePage() {
         result: { fakturoid_id: data.fakturoid_id, number: data.number },
         suggestedTx: data.suggestedTx ?? null,
       })
+
+      // Dávkový průchod: pokud schválená faktura nemá bankovní návrh k potvrzení,
+      // přeskoč rovnou na další fakturu ke kontrole
+      if (!data.suggestedTx) selectNextForReview(id)
     } catch (e) {
       patch(id, { status: 'error', errorMsg: e instanceof Error ? e.message : 'Neznámá chyba' })
     }
+  }
+
+  // Najdi další položku ke kontrole (v pořadí fronty, začíná za aktuální)
+  function selectNextForReview(afterId: string) {
+    setQueue(prev => {
+      const idx = prev.findIndex(q => q.id === afterId)
+      const ordered = [...prev.slice(idx + 1), ...prev.slice(0, idx)]
+      const next = ordered.find(q => q.status === 'extracted')
+      if (next) setSelectedId(next.id)
+      return prev
+    })
   }
 
   async function confirmMatch(queueId: string, txId: string, expenseInvoiceId: string) {
@@ -296,6 +311,7 @@ export default function UploadInvoicePage() {
       body: JSON.stringify({ action: 'set_match', expense_invoice_id: expenseInvoiceId }),
     })
     patch(queueId, { matchConfirmed: true })
+    selectNextForReview(queueId)
   }
 
   async function removeItem(id: string) {
@@ -488,13 +504,28 @@ export default function UploadInvoicePage() {
             {selected && selected.status === 'done' && selected.result && (
               <div className="space-y-3">
                 <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
-                    <p className="font-semibold text-green-900">
-                      Náklad <span className="font-mono">{selected.result.number}</span> byl vložen do Fakturoidu
-                    </p>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
+                      <p className="font-semibold text-green-900">
+                        Náklad <span className="font-mono">{selected.result.number}</span> byl vložen do Fakturoidu
+                      </p>
+                    </div>
+                    {draftCount > 0 && (
+                      <Button size="sm" onClick={() => selectNextForReview(selected.id)}>
+                        Další ke kontrole ({draftCount})
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    )}
                   </div>
                 </div>
+
+                {draftCount === 0 && pendingCount === 0 && doneCount > 1 && (
+                  <div className="rounded-xl border border-green-100 bg-green-50/50 p-3 text-sm text-green-800 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                    Hotovo — všech {doneCount} faktur je ve Fakturoidu 🎉
+                  </div>
+                )}
 
                 {selected.suggestedTx && !selected.matchConfirmed && selected.draftId && (
                   <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-start gap-3">
@@ -520,7 +551,7 @@ export default function UploadInvoicePage() {
                         Spárovat
                       </button>
                       <button
-                        onClick={() => patch(selected.id, { suggestedTx: null })}
+                        onClick={() => { patch(selected.id, { suggestedTx: null }); selectNextForReview(selected.id) }}
                         className="px-3 py-1.5 border border-blue-200 text-blue-600 text-xs font-medium rounded-lg hover:bg-blue-100 transition-colors"
                       >
                         Přeskočit
