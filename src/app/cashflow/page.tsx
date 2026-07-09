@@ -32,7 +32,7 @@ async function getCashflowData(month: string) {
     pendingIncomeRes,   // pohledávky (income čeká na zaplacení)
     varRes, fixedRes, extraRes,
   ] = await Promise.all([
-    supabase.from('invoices').select('number, subject_name, total, paid_on').eq('status', 'paid').gte('paid_on', from).lte('paid_on', to),
+    supabase.from('invoices').select('number, subject_name, total, paid_on, is_eshop').eq('status', 'paid').gte('paid_on', from).lte('paid_on', to),
     supabase.from('income').select('amount, client, project_name').eq('month', month).eq('status', 'zaplaceno'),
     supabase.from('income').select('id, amount, client, project_name, date, status, month').in('status', PENDING_STATUSES).order('date', { ascending: false }),
     supabase.from('variable_costs').select('price').eq('month', month),
@@ -41,6 +41,7 @@ async function getCashflowData(month: string) {
   ])
 
   const fakturoidCashIn = fakturoidPaidRes.data?.reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
+  const eshopCashIn = fakturoidPaidRes.data?.filter(r => r.is_eshop).reduce((s, r) => s + (r.total ?? 0), 0) ?? 0
   const manualCashIn = manualPaidRes.data?.reduce((s, r) => s + (r.amount ?? 0), 0) ?? 0
 
   // Použij Fakturoid jako primární zdroj; pokud není žádná data, fall-back na ruční
@@ -75,6 +76,7 @@ async function getCashflowData(month: string) {
 
   return {
     cashIn,
+    eshopCashIn,
     cashOut,
     net: cashIn - cashOut,
     pendingTotal,
@@ -114,7 +116,7 @@ async function getOutlook(totalBalance: number | null) {
   }
 
   const [unpaidRes, varRes, extraRes, salRes, fixedRes, syncRes] = await Promise.all([
-    supabase.from('invoices').select('total, due_on').neq('status', 'paid'),
+    supabase.from('invoices').select('total, due_on, is_eshop').neq('status', 'paid'),
     supabase.from('variable_costs').select('month, price').in('month', last3),
     supabase.from('extra_costs').select('month, amount').in('month', last3),
     supabase.from('owner_salaries').select('month, amount').in('month', last3),
@@ -137,6 +139,7 @@ async function getOutlook(totalBalance: number | null) {
   const inByMonth = new Map<string, number>(nextMonths.map(m => [m, 0]))
   let overdue = 0
   for (const inv of unpaidRes.data ?? []) {
+    if (inv.is_eshop) continue // e-shop objednávky se platí hned, do výhledu nepatří
     const due = inv.due_on ? new Date(inv.due_on) : null
     const total = Number(inv.total ?? 0)
     if (!due || due < monthStart) { overdue += total; continue }
@@ -216,7 +219,7 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
             Výhled na 3 měsíce
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Příjmy = neuhrazené vydané faktury podle splatnosti{outlook.overdue > 0 && <> (z toho <span className="font-semibold text-orange-600">{formatCZK(outlook.overdue)} po splatnosti</span>, počítáno do aktuálního měsíce)</>}.
+            Příjmy = neuhrazené <span className="font-medium">agenturní</span> faktury podle splatnosti (e-shop se platí hned){outlook.overdue > 0 && <> (z toho <span className="font-semibold text-orange-600">{formatCZK(outlook.overdue)} po splatnosti</span>, počítáno do aktuálního měsíce)</>}.
             Výdaje = fixní + průměr mezd, extra a platů za poslední 3 měsíce ({formatCZK(outlook.expectedOutMonthly)}/měsíc).
           </p>
           {outlook.syncAgeHours != null && outlook.syncAgeHours > 48 ? (
@@ -278,6 +281,11 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
                   {d.hasFakturoidData && <span className="ml-1 text-blue-500">(Fakturoid)</span>}
                 </p>
                 <p className="text-xl font-bold text-green-700">{formatCZK(d.cashIn)}</p>
+                {d.eshopCashIn > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    agentura {formatCZK(d.cashIn - d.eshopCashIn)} · <span className="text-purple-600 font-medium">e-shop {formatCZK(d.eshopCashIn)}</span>
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -359,7 +367,10 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
                   {d.fakturoidItems.map((inv, i) => (
                     <tr key={i} className="hover:bg-gray-50">
                       <td className="py-2 text-muted-foreground text-xs font-mono">{inv.number ?? '—'}</td>
-                      <td className="py-2 font-medium text-xs">{inv.subject_name ?? '—'}</td>
+                      <td className="py-2 font-medium text-xs">
+                        {inv.subject_name ?? '—'}
+                        {inv.is_eshop && <span className="ml-1.5 inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700">e-shop</span>}
+                      </td>
                       <td className="py-2 text-muted-foreground text-xs">{inv.paid_on ? formatDate(inv.paid_on) : '—'}</td>
                       <td className="py-2 text-right font-bold text-green-700">{formatCZK(inv.total ?? 0)}</td>
                     </tr>

@@ -110,9 +110,15 @@ export async function POST() {
 
   const rows = allInvoices.map((inv) => mapFakturoidInvoiceToDb(inv))
 
-  const { error: dbError } = await supabase
+  let { error: dbError } = await supabase
     .from('invoices')
     .upsert(rows, { onConflict: 'fakturoid_id' })
+
+  // Fallback: sloupec is_eshop ještě nemusí existovat (migrace 027) — zkus bez něj
+  if (dbError && dbError.message.includes('is_eshop')) {
+    const stripped = rows.map(({ is_eshop: _ignored, ...rest }) => rest)
+    ;({ error: dbError } = await supabase.from('invoices').upsert(stripped, { onConflict: 'fakturoid_id' }))
+  }
 
   if (dbError) {
     return NextResponse.json({ error: `Chyba uložení do DB: ${dbError.message}` }, { status: 500 })
