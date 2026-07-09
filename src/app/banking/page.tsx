@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2, Zap, Sparkles, Check, ArrowLeftRight, ChevronDown, ChevronUp, Upload, FileText } from 'lucide-react'
+import { RefreshCw, Loader2, X, Search, Pencil, Settings2, Plus, Trash2, Zap, Sparkles, Check, ArrowLeftRight, ChevronDown, ChevronUp, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -144,8 +144,8 @@ export default function BankingPage() {
   const [matchResult, setMatchResult] = useState<string | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
   const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set())
-  const [importing, setImporting] = useState(false)
-  const csvInputRef = useRef<HTMLInputElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const didAutoScroll = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -177,6 +177,14 @@ export default function BankingPage() {
     : Number(currentAccount?.starting_balance ?? 0)
 
   // Filter by account + year, calculate running balance ascending, then reverse for display
+  // Deník: otevřít rovnou dole (u nejnovějších zápisů)
+  useEffect(() => { didAutoScroll.current = false }, [selectedId, yearFilter])
+  useEffect(() => {
+    if (loading || didAutoScroll.current) return
+    didAutoScroll.current = true
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))
+  }, [loading, txs])
+
   const accountTxs = txs
     .filter(tx => tx.account_id === selectedId && tx.date.startsWith(String(yearFilter)))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -336,29 +344,6 @@ export default function BankingPage() {
     await load()
   }
 
-  async function handleCsvImport(file: File) {
-    setImporting(true)
-    setMatchResult(null)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/banking/match/import-csv', { method: 'POST', body: form })
-      const data = await res.json()
-      if (!res.ok) {
-        setMatchResult(`❌ ${data.error ?? 'Import selhal'}`)
-      } else {
-        setMatchResult(
-          `✓ CSV (${data.year}): ${data.total_csv_entries} řádků · ${data.matched_invoices} spárováno · ${data.marked_no_invoice} bez faktury · ${data.bank_tx_not_found} bez tx v DB · ${data.invoice_not_found} bez faktury v DB`
-        )
-        await load()
-      }
-    } catch (e) {
-      setMatchResult(`❌ ${e instanceof Error ? e.message : 'Chyba'}`)
-    } finally {
-      setImporting(false)
-    }
-  }
-
   async function addManualTransaction(form: {
     date: string; type: 'income' | 'expense'; amount: number;
     note: string; counterparty_name: string; variable_symbol: string;
@@ -435,22 +420,6 @@ export default function BankingPage() {
           >
             {matchRunning === 'ai' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             AI pomoc
-          </button>
-          <input
-            ref={csvInputRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleCsvImport(f); e.target.value = '' }}
-          />
-          <button
-            onClick={() => csvInputRef.current?.click()}
-            disabled={importing}
-            className="flex items-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
-            title="Naimportovat ručně spárovaný Finanční deník (CSV z Excelu)"
-          >
-            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Import CSV
           </button>
           <button
             onClick={() => setShowAccountsModal(true)}
@@ -784,6 +753,7 @@ export default function BankingPage() {
               </tfoot>
             )}
           </table>
+          <div ref={bottomRef} />
         </div>
       )}
 
