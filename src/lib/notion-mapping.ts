@@ -242,11 +242,12 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
   // Status — status property, fallback rich_text "Stav"
   const status = getSelect(findProp(props, ['Status', 'Stav'])) ?? getRichText(findProp(props, ['Stav'], 'rich_text'))
 
-  // Dovolená: select 🎬/📽️/🖼️ (kategorie tasku) s hodnotou "dovolená" → není to práce,
+  // Dovolená / osobní: select 🎬/📽️/🖼️ (kategorie tasku) → není to práce,
   // do nákladů nepatří. Název sloupce je jen emoji, proto hledáme podle typu a hodnoty.
+  const SKIP_CATEGORIES = new Set(['dovolena', 'osobni'])
   const isVacation = Object.values(props).some(p => {
     if (p.type !== 'select' || !p.select?.name) return false
-    return p.select.name.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') === 'dovolena'
+    return SKIP_CATEGORIES.has(p.select.name.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''))
   })
 
   return {
