@@ -14,7 +14,7 @@ export interface ClassifyResult {
 }
 
 // Vlastní Fio účty (bez kódu banky) — převody mezi nimi jsou interní
-const OWN_ACCOUNTS = ['2302617857', '2503036098']
+const OWN_ACCOUNTS = ['2302617857', '2503036098', '2103489805']
 
 // Známé protiúčty
 const ACC_REMES = '115-1476970277'

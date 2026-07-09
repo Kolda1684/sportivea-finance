@@ -78,8 +78,11 @@ const BALANCE_TTL_MS = 10 * 60 * 1000
 
 export async function getFioBalances(): Promise<FioBalance[]> {
   const tokens: { envKey: string; token: string }[] = []
-  if (process.env.FIO_ucet_1) tokens.push({ envKey: 'FIO_ucet_1', token: process.env.FIO_ucet_1 })
-  if (process.env.FIO_ucet_2) tokens.push({ envKey: 'FIO_ucet_2', token: process.env.FIO_ucet_2 })
+  for (let i = 1; i <= 9; i++) {
+    const key = `FIO_ucet_${i}`
+    const value = process.env[key]
+    if (value) tokens.push({ envKey: key, token: value })
+  }
 
   const today = new Date().toISOString().slice(0, 10)
   const results: FioBalance[] = []

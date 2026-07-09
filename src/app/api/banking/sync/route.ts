@@ -18,12 +18,16 @@ export async function POST(req: NextRequest) {
   const forceDateFrom = searchParams.get('from')
   const dateTo = searchParams.get('to') ?? today()
 
+  // FIO_ucet_1 … FIO_ucet_9 — každý účet má vlastní API token
   const tokens: { envKey: string; token: string }[] = []
-  if (process.env.FIO_ucet_1) tokens.push({ envKey: 'FIO_ucet_1', token: process.env.FIO_ucet_1 })
-  if (process.env.FIO_ucet_2) tokens.push({ envKey: 'FIO_ucet_2', token: process.env.FIO_ucet_2 })
+  for (let i = 1; i <= 9; i++) {
+    const key = `FIO_ucet_${i}`
+    const value = process.env[key]
+    if (value) tokens.push({ envKey: key, token: value })
+  }
 
   if (tokens.length === 0) {
-    return NextResponse.json({ error: 'Nejsou nastaveny FIO API tokeny (FIO_ucet_1, FIO_ucet_2)' }, { status: 400 })
+    return NextResponse.json({ error: 'Nejsou nastaveny FIO API tokeny (FIO_ucet_1…)' }, { status: 400 })
   }
 
   const supabase = createAdminSupabaseClient()
@@ -59,10 +63,9 @@ export async function POST(req: NextRequest) {
     try {
       statement = await fetchFioFull(token, dateFrom, dateTo)
     } catch (e: unknown) {
-      return NextResponse.json(
-        { error: `${envKey}: ${e instanceof Error ? e.message : 'Chyba FIO API'}` },
-        { status: 502 }
-      )
+      // Jeden vadný účet (rate limit / špatný token) nesmí shodit sync ostatních
+      results.push({ account: envKey, imported: 0, skipped: 0, errors: [e instanceof Error ? e.message : 'Chyba FIO API'] })
+      continue
     }
 
     const { info } = statement
