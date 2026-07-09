@@ -22,6 +22,7 @@ interface Invoice {
   variable_symbol: string
   note: string | null
   pdf_url: string | null
+  is_eshop: boolean | null
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -49,6 +50,7 @@ export default function InvoicesPage() {
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'agency' | 'eshop'>('agency')
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -60,6 +62,10 @@ export default function InvoicesPage() {
   }, [statusFilter])
 
   useEffect(() => { fetchInvoices() }, [fetchInvoices])
+
+  const visibleInvoices = invoices.filter(i =>
+    sourceFilter === 'all' ? true : sourceFilter === 'eshop' ? !!i.is_eshop : !i.is_eshop
+  )
 
   async function handleSync() {
     setSyncing(true)
@@ -77,11 +83,11 @@ export default function InvoicesPage() {
     }
   }
 
-  // Statistiky
-  const total = invoices.reduce((s, i) => s + (i.total ?? 0), 0)
-  const unpaid = invoices.filter(i => i.status === 'open' || i.status === 'sent').reduce((s, i) => s + (i.total ?? 0), 0)
-  const overdue = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + (i.total ?? 0), 0)
-  const paid = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total ?? 0), 0)
+  // Statistiky — z aktuálně zobrazeného zdroje (agentura / e-shop / vše)
+  const total = visibleInvoices.reduce((s, i) => s + (i.total ?? 0), 0)
+  const unpaid = visibleInvoices.filter(i => i.status === 'open' || i.status === 'sent').reduce((s, i) => s + (i.total ?? 0), 0)
+  const overdue = visibleInvoices.filter(i => i.status === 'overdue').reduce((s, i) => s + (i.total ?? 0), 0)
+  const paid = visibleInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total ?? 0), 0)
 
   return (
     <div className="p-8 space-y-6">
@@ -89,7 +95,7 @@ export default function InvoicesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Faktury</h1>
-          <p className="text-sm text-gray-500 mt-1">{invoices.length} faktur · synchronizováno z Fakturoid</p>
+          <p className="text-sm text-gray-500 mt-1">{visibleInvoices.length} faktur · synchronizováno z Fakturoid</p>
         </div>
         <Button onClick={handleSync} disabled={syncing}>
           <RefreshCw className={cn('h-4 w-4 mr-2', syncing && 'animate-spin')} />
@@ -123,7 +129,23 @@ export default function InvoicesPage() {
       </div>
 
       {/* Filtr */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-white border rounded-lg p-1">
+          {([['agency', 'Agentura'], ['eshop', 'E-shop'], ['all', 'Vše']] as const).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setSourceFilter(val)}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                sourceFilter === val
+                  ? val === 'eshop' ? 'bg-purple-100 text-purple-700' : 'bg-gray-900 text-white'
+                  : 'text-gray-400 hover:bg-gray-100'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="Všechny statusy" />
@@ -157,17 +179,20 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {invoices.length === 0 ? (
+              {visibleInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                     <p>Žádné faktury — klikni na &quot;Sync z Fakturoid&quot;</p>
                   </td>
                 </tr>
-              ) : invoices.map(inv => (
+              ) : visibleInvoices.map(inv => (
                 <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{inv.number}</td>
-                  <td className="px-4 py-3 font-medium">{inv.subject_name ?? '—'}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {inv.subject_name ?? '—'}
+                    {sourceFilter === 'all' && inv.is_eshop && <span className="ml-1.5 inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700">e-shop</span>}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">{formatDate(inv.issued_on)}</td>
                   <td className={cn('px-4 py-3', inv.status === 'overdue' && 'text-red-600 font-medium')}>
                     {formatDate(inv.due_on)}
@@ -191,11 +216,11 @@ export default function InvoicesPage() {
                 </tr>
               ))}
             </tbody>
-            {invoices.length > 0 && (
+            {visibleInvoices.length > 0 && (
               <tfoot className="bg-gray-50 border-t">
                 <tr>
                   <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">CELKEM</td>
-                  <td className="px-4 py-2.5 text-muted-foreground text-sm">{formatCZK(invoices.reduce((s, i) => s + (i.subtotal ?? 0), 0))}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-sm">{formatCZK(visibleInvoices.reduce((s, i) => s + (i.subtotal ?? 0), 0))}</td>
                   <td className="px-4 py-2.5 font-bold text-sm">{formatCZK(total)}</td>
                   <td colSpan={2} />
                 </tr>

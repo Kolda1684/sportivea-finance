@@ -26,6 +26,7 @@ export interface FakturoidInvoice {
   variable_symbol: string
   note: string | null
   pdf_url: string | null
+  custom_id?: string | null   // Shopify order ID — vyplněné jen u e-shop faktur
 }
 
 export async function fetchInvoices(
@@ -98,6 +99,8 @@ export function mapFakturoidInvoiceToDb(inv: FakturoidInvoice) {
     subtotal,
     currency: inv.currency,
     status: inv.status,
+    // e-shop faktury generuje Shopify a nastavuje custom_id (číslo objednávky)
+    is_eshop: inv.custom_id != null && String(inv.custom_id).trim() !== '',
     variable_symbol: inv.variable_symbol,
     note: inv.note,
     pdf_url: inv.pdf_url,
