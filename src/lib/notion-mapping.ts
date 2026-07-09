@@ -186,6 +186,7 @@ export interface TaskMapped {
   month: string | null
   notion_company_page_ids: string[]
   status: string | null           // Notion Status (Hotovo / In Progress / …)
+  isVacation: boolean             // kategorie "dovolená" — nikdy nejde do nákladů
 }
 
 // Task se do nákladů dostane až když je hotový — jinak není relevantní.
@@ -241,6 +242,13 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
   // Status — status property, fallback rich_text "Stav"
   const status = getSelect(findProp(props, ['Status', 'Stav'])) ?? getRichText(findProp(props, ['Stav'], 'rich_text'))
 
+  // Dovolená: select 🎬/📽️/🖼️ (kategorie tasku) s hodnotou "dovolená" → není to práce,
+  // do nákladů nepatří. Název sloupce je jen emoji, proto hledáme podle typu a hodnoty.
+  const isVacation = Object.values(props).some(p => {
+    if (p.type !== 'select' || !p.select?.name) return false
+    return p.select.name.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') === 'dovolena'
+  })
+
   return {
     notion_page_id: page.id,
     task_name,
@@ -251,6 +259,7 @@ export function mapTask(page: PageObjectResponse): TaskMapped | null {
     month: normalizeMonth(monthRaw),
     notion_company_page_ids: getRelationIds(clientRelation),
     status,
+    isVacation,
   }
 }
 
@@ -266,9 +275,9 @@ export async function syncTaskPage(page: PageObjectResponse, teamMember: string)
     .eq('notion_page_id', mapped.notion_page_id)
     .maybeSingle()
 
-  // Náklad vzniká až když je task Hotovo. Pokud není (nebo se vrátil z Hotovo zpět),
-  // odstraň případný dřívější záznam, ať nezůstane v nákladech.
-  if (!isTaskDone(mapped.status)) {
+  // Náklad vzniká až když je task Hotovo a není to dovolená. Jinak odstraň
+  // případný dřívější záznam, ať nezůstane v nákladech.
+  if (!isTaskDone(mapped.status) || mapped.isVacation) {
     if (existing) {
       await supabase.from('variable_costs').delete().eq('id', existing.id)
       return { id: existing.id, created: false, deleted: true }
