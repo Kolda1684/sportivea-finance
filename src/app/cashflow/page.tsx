@@ -113,13 +113,16 @@ async function getOutlook(totalBalance: number | null) {
     last3.push(`${d.getMonth() + 1},${d.getFullYear()}`)
   }
 
-  const [unpaidRes, varRes, extraRes, salRes, fixedRes] = await Promise.all([
+  const [unpaidRes, varRes, extraRes, salRes, fixedRes, syncRes] = await Promise.all([
     supabase.from('invoices').select('total, due_on').neq('status', 'paid'),
     supabase.from('variable_costs').select('month, price').in('month', last3),
     supabase.from('extra_costs').select('month, amount').in('month', last3),
     supabase.from('owner_salaries').select('month, amount').in('month', last3),
     supabase.from('fixed_costs').select('amount').eq('active', true),
+    supabase.from('invoices').select('synced_at').order('synced_at', { ascending: false }).limit(1),
   ])
+  const lastInvoiceSync = syncRes.data?.[0]?.synced_at ?? null
+  const syncAgeHours = lastInvoiceSync ? (Date.now() - new Date(lastInvoiceSync).getTime()) / 3_600_000 : null
 
   const fixedMonthly = (fixedRes.data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
   const avg = (rows: { month: string; total: number }[]) =>
@@ -151,7 +154,7 @@ async function getOutlook(totalBalance: number | null) {
     return { month: m, expectedIn, expectedOut: expectedOutMonthly, net, projectedBalance: running }
   })
 
-  return { months, overdue, expectedOutMonthly, hasBalance: totalBalance != null }
+  return { months, overdue, expectedOutMonthly, hasBalance: totalBalance != null, lastInvoiceSync, syncAgeHours }
 }
 
 export default async function CashflowPage({ searchParams }: { searchParams: { month?: string } }) {
@@ -216,6 +219,15 @@ export default async function CashflowPage({ searchParams }: { searchParams: { m
             Příjmy = neuhrazené vydané faktury podle splatnosti{outlook.overdue > 0 && <> (z toho <span className="font-semibold text-orange-600">{formatCZK(outlook.overdue)} po splatnosti</span>, počítáno do aktuálního měsíce)</>}.
             Výdaje = fixní + průměr mezd, extra a platů za poslední 3 měsíce ({formatCZK(outlook.expectedOutMonthly)}/měsíc).
           </p>
+          {outlook.syncAgeHours != null && outlook.syncAgeHours > 48 ? (
+            <p className="text-xs font-semibold text-red-600 mt-1">
+              ⚠ Faktury naposledy synchronizované {formatDate(outlook.lastInvoiceSync!)} — data můžou být zastaralá! Zkontroluj cron na Vercelu.
+            </p>
+          ) : outlook.lastInvoiceSync && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Faktury synchronizované {formatDate(outlook.lastInvoiceSync)}.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <table className="w-full text-sm">
