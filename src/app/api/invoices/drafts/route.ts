@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { signInvoiceUrl } from '@/lib/invoice-storage'
 
+// GET bez parametrů by Next jinak cachoval — drafty se musí číst vždy čerstvé
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const supabase = createAdminSupabaseClient()
   const { data, error } = await supabase
