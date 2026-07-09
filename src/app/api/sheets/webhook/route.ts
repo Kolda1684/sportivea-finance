@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { dateToMonth } from '@/lib/utils'
 
+// GET bez dynamických parametrů by Next cachoval (i Supabase fetch) → vždy čerstvá data
+export const dynamic = 'force-dynamic'
+
 // Webhook secret – nastav SHEETS_WEBHOOK_SECRET v .env.local
 const WEBHOOK_SECRET = process.env.SHEETS_WEBHOOK_SECRET
 

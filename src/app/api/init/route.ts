@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getSessionUser } from '@/lib/auth-helpers'
 
+// GET bez dynamických parametrů by Next cachoval (i Supabase fetch) → vždy čerstvá data
+export const dynamic = 'force-dynamic'
+
 // Kombinovaný init endpoint — vrátí me + isAdmin + profiles + companies v jednom requestu
 // Snižuje 3 round-tripy na 1, interně 3 paralelní Supabase dotazy
 export async function GET() {
