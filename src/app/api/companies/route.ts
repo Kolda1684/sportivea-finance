@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getSessionUser } from '@/lib/auth-helpers'
 
+// GET bez dynamických parametrů by Next cachoval (i Supabase fetch) → vždy čerstvá data
+export const dynamic = 'force-dynamic'
+
 // Přístupné všem přihlášeným uživatelům — pro dropdown v taskách
 export async function GET() {
   const user = await getSessionUser()

@@ -611,21 +611,60 @@ function DetailPanel({
   const warningByField = new Map(item.warnings.map(w => [w.field, w.message]))
   const isPdf = item.previewUrl?.toLowerCase().includes('.pdf') || item.file?.type === 'application/pdf'
 
+  // PDF ze storage stahujeme jako blob — signed URL má hlavičky (CSP sandbox),
+  // kvůli kterým Chrome v iframe nezobrazí PDF viewer (černý panel)
+  const [pdfSrc, setPdfSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (!item.previewUrl || !isPdf) { setPdfSrc(null); return }
+    if (item.file || item.previewUrl.startsWith('blob:')) { setPdfSrc(item.previewUrl); return }
+    let cancelled = false
+    let objectUrl: string | null = null
+    fetch(item.previewUrl)
+      .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.blob() })
+      .then(b => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(b.slice(0, b.size, 'application/pdf'))
+        setPdfSrc(objectUrl)
+      })
+      .catch(() => { if (!cancelled) setPdfSrc(item.previewUrl) })
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [item.previewUrl, item.file, isPdf])
+
   return (
     <div className="flex gap-4 items-start">
 
-      <div className="w-[520px] flex-shrink-0 rounded-xl border overflow-hidden bg-gray-100 sticky top-0" style={{ height: '90vh' }}>
-        {item.previewUrl && isPdf && (
-          <iframe src={item.previewUrl} className="w-full h-full" title="Náhled faktury" />
-        )}
-        {item.previewUrl && !isPdf && (
-          <img src={item.previewUrl} alt="Náhled faktury" className="w-full h-full object-contain" />
-        )}
-        {!item.previewUrl && (
-          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-            Náhled není k dispozici
-          </div>
-        )}
+      <div className="w-[520px] flex-shrink-0 rounded-xl border overflow-hidden bg-gray-100 sticky top-0 flex flex-col" style={{ height: '90vh' }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-white flex-shrink-0">
+          <span className="text-xs font-medium text-gray-500 truncate">{item.filename}</span>
+          {item.previewUrl && (
+            <a
+              href={pdfSrc ?? item.previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+            >
+              Otevřít v novém okně ↗
+            </a>
+          )}
+        </div>
+        <div className="flex-1 min-h-0">
+          {item.previewUrl && isPdf && pdfSrc && (
+            <iframe src={pdfSrc} className="w-full h-full" title="Náhled faktury" />
+          )}
+          {item.previewUrl && isPdf && !pdfSrc && (
+            <div className="w-full h-full flex items-center justify-center gap-2 text-gray-400 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Načítám náhled…
+            </div>
+          )}
+          {item.previewUrl && !isPdf && (
+            <img src={item.previewUrl} alt="Náhled faktury" className="w-full h-full object-contain" />
+          )}
+          {!item.previewUrl && (
+            <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
+              Náhled není k dispozici
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-w-0 space-y-4">

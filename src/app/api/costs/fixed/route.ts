@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 
+// GET bez dynamických parametrů by Next cachoval (i Supabase fetch) → vždy čerstvá data
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const supabase = createAdminSupabaseClient()
   const { data, error } = await supabase

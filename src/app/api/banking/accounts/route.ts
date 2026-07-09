@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 
+// GET bez dynamických parametrů by Next cachoval (i Supabase fetch) → vždy čerstvá data
+export const dynamic = 'force-dynamic'
+
 const VALID_CURRENCIES = ['CZK', 'EUR', 'USD', 'GBP', 'PLN', 'CHF']
 
 function normalizeCurrency(input: unknown): string {
