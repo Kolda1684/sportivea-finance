@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Delší limit — sync řetězí 4 kroky (Fakturoid ×2, FIO, matching), dohromady i desítky sekund
+export const maxDuration = 300
+
 // Vercel Cron Job — spouštěno každý den v 6:00
-// Zabezpečeno CRON_SECRET env proměnnou (Vercel ji nastavuje automaticky)
+// Zabezpečeno CRON_SECRET env proměnnou
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -14,37 +17,26 @@ export async function GET(req: NextRequest) {
     ? { 'x-internal-secret': process.env.CRON_SECRET }
     : undefined
 
-  // 1. Fakturoid sync
-  try {
-    const res = await fetch(`${base}/api/invoices/sync`, { method: 'POST', headers: internalHeaders })
-    results.fakturoid = await res.json()
-  } catch (e) {
-    results.fakturoid = { error: String(e) }
+  // Per-step timeout, aby jeden zaseknutý krok neshodil celý cron
+  async function step(name: string, path: string) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: internalHeaders,
+        signal: AbortSignal.timeout(120_000),
+      })
+      results[name] = await res.json()
+    } catch (e) {
+      results[name] = { error: String(e) }
+      console.error(`[cron/sync] krok ${name} selhal:`, e)
+    }
   }
 
-  // 2. Fakturoid přijaté faktury
-  try {
-    const res = await fetch(`${base}/api/expense-invoices/sync`, { method: 'POST', headers: internalHeaders })
-    results.expense_fakturoid = await res.json()
-  } catch (e) {
-    results.expense_fakturoid = { error: String(e) }
-  }
+  await step('fakturoid', '/api/invoices/sync')                 // 1. vydané faktury
+  await step('expense_fakturoid', '/api/expense-invoices/sync') // 2. přijaté faktury
+  await step('fio', '/api/banking/sync')                        // 3. bankovní pohyby
+  await step('matching', '/api/banking/match')                  // 4. párování
 
-  // 3. FIO sync
-  try {
-    const res = await fetch(`${base}/api/banking/sync`, { method: 'POST', headers: internalHeaders })
-    results.fio = await res.json()
-  } catch (e) {
-    results.fio = { error: String(e) }
-  }
-
-  // 4. Párování bankovních pohybů s vydanými i přijatými fakturami
-  try {
-    const res = await fetch(`${base}/api/banking/match`, { method: 'POST', headers: internalHeaders })
-    results.matching = await res.json()
-  } catch (e) {
-    results.matching = { error: String(e) }
-  }
-
+  console.log('[cron/sync] hotovo:', JSON.stringify(results))
   return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), results })
 }
