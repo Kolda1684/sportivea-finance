@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { matchTransaction, matchExpenseTransaction, DbTransaction, DbInvoice, DbExpenseInvoice } from '@/lib/matching'
+import { classifyTransaction, isCardTransaction, type ClassifiableTx } from '@/lib/bank-classify'
 import { setRateCache } from '@/lib/exchange-rates'
 
 export async function POST() {
@@ -39,7 +40,26 @@ export async function POST() {
 
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
-  const stats = { total: 0, auto: 0, suggest: 0, manual: 0, income: 0, expense: 0 }
+  const stats = { total: 0, auto: 0, suggest: 0, manual: 0, income: 0, expense: 0, classified: 0 }
+
+  // Deterministická klasifikace (vlastní převody, majitelé, nájem, stát, mzdy)
+  // — vyřadí transakci z párování a označí kategorii
+  async function tryClassify(tx: DbTransaction & ClassifiableTx): Promise<boolean> {
+    const cls = classifyTransaction(tx)
+    if (!cls) return false
+    await supabase.from('bank_transactions').update({
+      is_internal_transfer: cls.kind === 'internal',
+      is_no_invoice: cls.kind === 'no_invoice',
+      status: 'ignored',
+      matched_invoice_id: null,
+      matched_expense_invoice_id: null,
+      match_zone: null,
+      match_confidence: 100,
+      match_method: cls.kind === 'internal' ? 'Vlastní převod' : `Kategorie: ${cls.category}`,
+    }).eq('id', tx.id)
+    stats.classified++
+    return true
+  }
 
   const { data: existingIncomeMatches, error: existingIncomeErr } = await supabase
     .from('bank_transactions')
@@ -56,9 +76,10 @@ export async function POST() {
       .filter(Boolean)
   )
 
-  for (const tx of (incomeTxs ?? []) as DbTransaction[]) {
+  for (const tx of (incomeTxs ?? []) as (DbTransaction & ClassifiableTx)[]) {
     stats.total++
     stats.income++
+    if (await tryClassify(tx)) continue
     const availableInvoices = ((invoices ?? []) as DbInvoice[])
       .filter(inv => !usedIncomeInvoiceIds.has(inv.id))
     const result = await matchTransaction(tx, availableInvoices)
@@ -129,12 +150,14 @@ export async function POST() {
       .filter(Boolean)
   )
 
-  for (const tx of (expenseTxs ?? []) as DbTransaction[]) {
+  for (const tx of (expenseTxs ?? []) as (DbTransaction & ClassifiableTx)[]) {
     stats.total++
     stats.expense++
+    if (await tryClassify(tx)) continue
     const availableExpenseInvoices = ((expenseInvoices ?? []) as DbExpenseInvoice[])
       .filter(inv => !usedExpenseInvoiceIds.has(inv.id))
-    const result = matchExpenseTransaction(tx, availableExpenseInvoices)
+    // Karetní platby: VS je fragment čísla karty — ignorovat, obchodník je v textu zprávy
+    const result = matchExpenseTransaction(tx, availableExpenseInvoices, { ignoreVs: isCardTransaction(tx) })
 
     if (result.zone === 'auto') {
       await supabase.from('bank_transactions').update({
