@@ -60,6 +60,7 @@ async function fetchAllVariableCosts(year: number) {
       .from('variable_costs')
       .select('month, price, task_type')
       .like('month', `%,${year}`)
+      .eq('is_done', true)
       .order('id')
       .range(page * PAGE, page * PAGE + PAGE - 1)
     rows.push(...(data ?? []))

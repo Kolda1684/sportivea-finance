@@ -10,7 +10,7 @@ async function getFinancialContext(month: string) {
 
   const [incomeRes, varRes, fixedRes, extraRes] = await Promise.all([
     supabase.from('income').select('client, project_name, amount, status').eq('month', month),
-    supabase.from('variable_costs').select('team_member, client, price, hours').eq('month', month),
+    supabase.from('variable_costs').select('team_member, client, price, hours').eq('month', month).eq('is_done', true),
     supabase.from('fixed_costs').select('name, amount').eq('active', true),
     supabase.from('extra_costs').select('name, amount').eq('month', month),
   ])

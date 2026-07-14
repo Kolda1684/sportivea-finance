@@ -37,9 +37,11 @@ export default function AllCostsPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // Mzdy = tasky z Notionu, Cestovné = cesťáky (náhrada, ne mzda)
-  const totalWages = variable.filter(v => !isTravel(v)).reduce((s, v) => s + (v.price ?? 0), 0)
-  const totalTravel = variable.filter(isTravel).reduce((s, v) => s + (v.price ?? 0), 0)
+  // Mzdy = tasky z Notionu, Cestovné = cesťáky (náhrada, ne mzda).
+  // Rozpracované tasky (is_done === false) do přehledu nepatří.
+  const doneVariable = variable.filter(v => v.is_done !== false)
+  const totalWages = doneVariable.filter(v => !isTravel(v)).reduce((s, v) => s + (v.price ?? 0), 0)
+  const totalTravel = doneVariable.filter(isTravel).reduce((s, v) => s + (v.price ?? 0), 0)
   const totalFixed = fixed.reduce((s, f) => s + f.amount, 0)
   const totalExtra = extra.reduce((s, e) => s + e.amount, 0)
   const totalAll = totalWages + totalTravel + totalFixed + totalExtra
@@ -48,6 +50,7 @@ export default function AllCostsPage() {
   const byClient = useMemo(() => {
     const map = new Map<string, number>()
     for (const v of variable) {
+      if (v.is_done === false) continue
       const key = v.client ?? '— bez klienta —'
       map.set(key, (map.get(key) ?? 0) + (v.price ?? 0))
     }
@@ -60,6 +63,7 @@ export default function AllCostsPage() {
   const byMember = useMemo(() => {
     const map = new Map<string, { wages: number; travel: number; hours: number }>()
     for (const v of variable) {
+      if (v.is_done === false) continue
       const key = v.team_member ?? '— neznámý —'
       const rec = map.get(key) ?? { wages: 0, travel: 0, hours: 0 }
       if (isTravel(v)) rec.travel += v.price ?? 0
