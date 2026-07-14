@@ -276,9 +276,8 @@ export async function syncTaskPage(page: PageObjectResponse, teamMember: string)
     .eq('notion_page_id', mapped.notion_page_id)
     .maybeSingle()
 
-  // Náklad vzniká až když je task Hotovo a není to dovolená. Jinak odstraň
-  // případný dřívější záznam, ať nezůstane v nákladech.
-  if (!isTaskDone(mapped.status) || mapped.isVacation) {
+  // Dovolená / osobní: není to práce — nikdy neukládat, existující smazat.
+  if (mapped.isVacation) {
     if (existing) {
       await supabase.from('variable_costs').delete().eq('id', existing.id)
       return { id: existing.id, created: false, deleted: true }
@@ -297,7 +296,9 @@ export async function syncTaskPage(page: PageObjectResponse, teamMember: string)
     if (company) client_name = company.name
   }
 
-  const row = {
+  // Ukládají se všechny tasky (pipeline); do nákladů se počítají jen is_done.
+  const done = isTaskDone(mapped.status)
+  const row: Record<string, unknown> = {
     task_name: mapped.task_name,
     client: client_name,
     hours: mapped.hours,
@@ -308,21 +309,44 @@ export async function syncTaskPage(page: PageObjectResponse, teamMember: string)
     team_member: teamMember,
     notion_page_id: mapped.notion_page_id,
     notion_last_synced: new Date().toISOString(),
+    is_done: done,
+    status: mapped.status,
   }
 
   if (existing) {
     // Klienta z Notionu přepiš jen když ho Notion má — jinak zachovej ručně doplněný.
     const update: Record<string, unknown> = { ...row }
     if (client_name == null) delete update.client
-    await supabase.from('variable_costs').update(update).eq('id', existing.id)
+    let { error: updErr } = await supabase.from('variable_costs').update(update).eq('id', existing.id)
+    // Fallback: sloupce is_done/status ještě neexistují (migrace 028)
+    if (updErr && (updErr.message.includes('is_done') || updErr.message.includes('status'))) {
+      delete update.is_done
+      delete update.status
+      if (!done) {
+        // bez sloupců se nehotové chovají postaru — z nákladů pryč
+        await supabase.from('variable_costs').delete().eq('id', existing.id)
+        return { id: existing.id, created: false, deleted: true }
+      }
+      ;({ error: updErr } = await supabase.from('variable_costs').update(update).eq('id', existing.id))
+    }
+    if (updErr) throw new Error(`Update variable_cost selhal: ${updErr.message}`)
     return { id: existing.id, created: false }
   }
 
-  const { data: inserted, error } = await supabase
+  let { data: inserted, error } = await supabase
     .from('variable_costs')
     .insert(row)
     .select('id')
     .single()
+
+  // Fallback: sloupce is_done/status ještě neexistují (migrace 028)
+  if (error && (error.message.includes('is_done') || error.message.includes('status'))) {
+    if (!done) return null // postaru: nehotové se neukládají
+    const stripped = { ...row }
+    delete stripped.is_done
+    delete stripped.status
+    ;({ data: inserted, error } = await supabase.from('variable_costs').insert(stripped).select('id').single())
+  }
 
   if (error || !inserted) throw new Error(`Insert variable_cost selhal: ${error?.message ?? 'unknown'}`)
   return { id: inserted.id, created: true }

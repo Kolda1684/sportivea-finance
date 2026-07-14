@@ -77,6 +77,8 @@ export interface VariableCost {
   month: string | null
   external_id: string | null
   created_at: string
+  is_done?: boolean | null   // false = rozpracovaný task (pipeline), nepočítá se do nákladů
+  status?: string | null     // surový Notion status (In Progress, Na check…)
 }
 
 export interface FixedCost {

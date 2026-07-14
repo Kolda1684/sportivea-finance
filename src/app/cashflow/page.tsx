@@ -35,7 +35,7 @@ async function getCashflowData(month: string) {
     supabase.from('invoices').select('number, subject_name, total, paid_on, is_eshop').eq('status', 'paid').gte('paid_on', from).lte('paid_on', to),
     supabase.from('income').select('amount, client, project_name').eq('month', month).eq('status', 'zaplaceno'),
     supabase.from('income').select('id, amount, client, project_name, date, status, month').in('status', PENDING_STATUSES).order('date', { ascending: false }),
-    supabase.from('variable_costs').select('price').eq('month', month),
+    supabase.from('variable_costs').select('price').eq('month', month).eq('is_done', true),
     supabase.from('fixed_costs').select('amount').eq('active', true),
     supabase.from('extra_costs').select('amount').eq('month', month),
   ])
@@ -61,7 +61,7 @@ async function getCashflowData(month: string) {
     const [fPaid, mPaid, costs, fix, ext] = await Promise.all([
       supabase.from('invoices').select('total').eq('status', 'paid').gte('paid_on', mFrom).lte('paid_on', mTo),
       supabase.from('income').select('amount').eq('month', m).eq('status', 'zaplaceno'),
-      supabase.from('variable_costs').select('price').eq('month', m),
+      supabase.from('variable_costs').select('price').eq('month', m).eq('is_done', true),
       supabase.from('fixed_costs').select('amount').eq('active', true),
       supabase.from('extra_costs').select('amount').eq('month', m),
     ])
@@ -117,7 +117,7 @@ async function getOutlook(totalBalance: number | null) {
 
   const [unpaidRes, varRes, extraRes, salRes, fixedRes, syncRes] = await Promise.all([
     supabase.from('invoices').select('total, due_on, is_eshop').neq('status', 'paid'),
-    supabase.from('variable_costs').select('month, price').in('month', last3),
+    supabase.from('variable_costs').select('month, price').in('month', last3).eq('is_done', true),
     supabase.from('extra_costs').select('month, amount').in('month', last3),
     supabase.from('owner_salaries').select('month, amount').in('month', last3),
     supabase.from('fixed_costs').select('amount').eq('active', true),

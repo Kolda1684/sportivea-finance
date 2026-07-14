@@ -116,6 +116,7 @@ export default function VariableCostsPage() {
   }, [])
   const [showImport, setShowImport] = useState(false)
   const [editCost, setEditCost] = useState<VariableCost | null>(null)
+  const [showPipeline, setShowPipeline] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -164,15 +165,26 @@ export default function VariableCostsPage() {
 
   useEffect(() => { fetchCosts() }, [fetchCosts])
 
-  const totalPrice = costs.reduce((s, c) => s + (c.price ?? 0), 0)
-  const totalHours = costs.reduce((s, c) => s + (c.hours ?? 0), 0)
+  // Pipeline: rozpracované tasky (is_done === false) — vidět ano, počítat ne.
+  // Cesťáky jsou oddělené od práce — v tabulce jako vlastní sekce dole.
+  const isTravelRow = (c: VariableCost) => c.task_type === 'Cesťák'
+  const doneCosts = costs.filter(c => c.is_done !== false)
+  const pipelineCosts = costs.filter(c => c.is_done === false)
+  const workDone = doneCosts.filter(c => !isTravelRow(c))
+  const travelCosts = doneCosts.filter(isTravelRow)
+  const workVisible = showPipeline ? [...workDone, ...pipelineCosts.filter(c => !isTravelRow(c))] : workDone
+  const visibleCosts = [...workVisible, ...travelCosts]
 
-  const byClient = costs.reduce<Record<string, number>>((acc, c) => {
+  const totalPrice = workDone.reduce((s, c) => s + (c.price ?? 0), 0)
+  const totalHours = workDone.reduce((s, c) => s + (c.hours ?? 0), 0)
+  const travelTotal = travelCosts.reduce((s, c) => s + (c.price ?? 0), 0)
+
+  const byClient = doneCosts.reduce<Record<string, number>>((acc, c) => {
     if (c.client) acc[c.client] = (acc[c.client] ?? 0) + (c.price ?? 0)
     return acc
   }, {})
 
-  const byMember = costs.reduce<Record<string, { price: number; hours: number }>>((acc, c) => {
+  const byMember = workDone.reduce<Record<string, { price: number; hours: number }>>((acc, c) => {
     const name = c.team_member ?? 'Neznámý'
     if (!acc[name]) acc[name] = { price: 0, hours: 0 }
     acc[name].price += c.price ?? 0
@@ -189,7 +201,9 @@ export default function VariableCostsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Variabilní náklady</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {costs.length} záznamů · {totalHours} h · {formatCZK(totalPrice)}
+            Práce: {workDone.length} tasků · {Math.round(totalHours * 10) / 10} h · {formatCZK(totalPrice)}
+            {travelCosts.length > 0 && <span className="text-teal-600"> · cesťáky: {travelCosts.length} · {formatCZK(travelTotal)}</span>}
+            {pipelineCosts.length > 0 && <span className="text-blue-500"> · {pipelineCosts.length} rozpracovaných (nepočítá se)</span>}
           </p>
         </div>
         <div className="flex gap-2">
@@ -265,6 +279,20 @@ export default function VariableCostsPage() {
             {uniqueClients.map(c => <SelectItem key={c!} value={c!}>{c}</SelectItem>)}
           </SelectContent>
         </Select>
+
+        {pipelineCosts.length > 0 && (
+          <button
+            onClick={() => setShowPipeline(p => !p)}
+            className={cn(
+              'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+              showPipeline
+                ? 'bg-blue-50 border-blue-200 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'
+            )}
+          >
+            Rozpracované ({pipelineCosts.length})
+          </button>
+        )}
       </div>
 
       {/* Souhrnné karty po členech */}
@@ -302,7 +330,7 @@ export default function VariableCostsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {costs.length === 0 ? (
+              {visibleCosts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
                     <Upload className="h-8 w-8 mx-auto mb-2 text-gray-300" />
@@ -315,11 +343,33 @@ export default function VariableCostsPage() {
                     </button>
                   </td>
                 </tr>
-              ) : costs.map((cost) => {
-                const missingClient = !cost.client
+              ) : [
+                ...workVisible.map(cost => ({ kind: 'row' as const, cost })),
+                ...(travelCosts.length > 0 ? [{ kind: 'travel-header' as const, cost: null as unknown as VariableCost }] : []),
+                ...travelCosts.map(cost => ({ kind: 'row' as const, cost })),
+              ].map((item, i) => {
+                if (item.kind === 'travel-header') {
+                  return (
+                    <tr key={`travel-header-${i}`} className="bg-teal-50/60">
+                      <td colSpan={8} className="px-3 py-1.5 text-xs font-semibold text-teal-700 uppercase tracking-wide">
+                        Cesťáky ({travelCosts.length}) · {formatCZK(travelTotal)}
+                      </td>
+                    </tr>
+                  )
+                }
+                const cost = item.cost
+                const inProgress = cost.is_done === false
+                const missingClient = !cost.client && !inProgress
                 return (
-                  <tr key={cost.id} className={cn('transition-colors group', missingClient ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50/70')}>
-                    <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">{cost.team_member ?? '—'}</td>
+                  <tr key={cost.id} className={cn('transition-colors group', inProgress ? 'bg-gray-50/80 opacity-70 hover:opacity-100' : missingClient ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50/70')}>
+                    <td className="px-3 py-2 font-medium text-gray-900 border-r border-gray-100">
+                      {cost.team_member ?? '—'}
+                      {inProgress && (
+                        <span className="ml-1.5 inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 whitespace-nowrap">
+                          {cost.status ?? 'rozpracováno'}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 border-r border-gray-100">
                       {missingClient ? (
                         <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
@@ -350,12 +400,26 @@ export default function VariableCostsPage() {
                 )
               })}
             </tbody>
-            {costs.length > 0 && (
+            {visibleCosts.length > 0 && (
               <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                 <tr>
-                  <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">CELKEM</td>
-                  <td className="px-3 py-2.5 text-right font-bold tabular-nums border-r border-gray-100">{totalHours} h</td>
-                  <td className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(totalPrice)}</td>
+                  <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">Práce</td>
+                  <td className="px-3 py-2 text-right font-bold tabular-nums border-r border-gray-100">{Math.round(totalHours * 10) / 10} h</td>
+                  <td className="px-3 py-2 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(totalPrice)}</td>
+                  <td />
+                </tr>
+                {travelCosts.length > 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-teal-700 uppercase tracking-wide border-r border-gray-100">Cesťáky</td>
+                    <td className="px-3 py-2 border-r border-gray-100" />
+                    <td className="px-3 py-2 text-right font-bold text-teal-700 tabular-nums border-r border-gray-100">{formatCZK(travelTotal)}</td>
+                    <td />
+                  </tr>
+                )}
+                <tr className="border-t border-gray-200">
+                  <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-100">Celkem</td>
+                  <td className="px-3 py-2.5 border-r border-gray-100" />
+                  <td className="px-3 py-2.5 text-right font-bold text-red-600 tabular-nums border-r border-gray-100">{formatCZK(totalPrice + travelTotal)}</td>
                   <td />
                 </tr>
               </tfoot>

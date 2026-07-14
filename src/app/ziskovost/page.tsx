@@ -21,7 +21,7 @@ async function getData(month: string): Promise<{ rows: ClientRow[]; totals: { in
   const supabase = createAdminSupabaseClient()
   const [incomeRes, costsRes] = await Promise.all([
     supabase.from('income').select('client, amount').eq('month', month),
-    supabase.from('variable_costs').select('client, price').eq('month', month),
+    supabase.from('variable_costs').select('client, price').eq('month', month).eq('is_done', true),
   ])
 
   // klíč = normalizované jméno, label = první viděná varianta
