@@ -70,6 +70,7 @@ interface QueueItem {
   result: { fakturoid_id: number; number: string } | null
   errorMsg: string
   duzpManual: boolean
+  receivedManual: boolean
   vatCalcMode: 'from_base' | 'from_total'
   suggestedTx: SuggestedTx | null
   matchConfirmed: boolean
@@ -164,6 +165,7 @@ export default function UploadInvoicePage() {
           result: null,
           errorMsg: '',
           duzpManual: false,
+          receivedManual: false,
           vatCalcMode: 'from_base',
           suggestedTx: null,
           matchConfirmed: false,
@@ -236,6 +238,7 @@ export default function UploadInvoicePage() {
       result: null,
       errorMsg: '',
       duzpManual: false,
+      receivedManual: false,
       vatCalcMode: 'from_base',
       suggestedTx: null,
       matchConfirmed: false,
@@ -578,6 +581,7 @@ export default function UploadInvoicePage() {
                 onRemoveItem={idx => removeLineItem(selected.id, idx)}
                 onToggleVatMode={() => patch(selected.id, { vatCalcMode: selected.vatCalcMode === 'from_base' ? 'from_total' : 'from_base' })}
                 onToggleDuzp={() => patch(selected.id, { duzpManual: true })}
+                onToggleReceived={() => patch(selected.id, { receivedManual: true })}
                 onApprove={() => approveItem(selected.id)}
                 onRemove={() => removeItem(selected.id)}
                 totals={computeTotals(selected)}
@@ -594,7 +598,7 @@ export default function UploadInvoicePage() {
 
 function DetailPanel({
   item, onUpdateExtracted, onUpdateItem, onAddItem, onRemoveItem,
-  onToggleVatMode, onToggleDuzp, onApprove, onRemove, totals,
+  onToggleVatMode, onToggleDuzp, onToggleReceived, onApprove, onRemove, totals,
 }: {
   item: QueueItem
   onUpdateExtracted: (u: Partial<ExtractedInvoice>) => void
@@ -603,6 +607,7 @@ function DetailPanel({
   onRemoveItem: (i: number) => void
   onToggleVatMode: () => void
   onToggleDuzp: () => void
+  onToggleReceived: () => void
   onApprove: () => void
   onRemove: () => void
   totals: { withoutVat: number; total: number; vat: number }
@@ -739,10 +744,11 @@ function DetailPanel({
                 onUpdateExtracted({
                   issued_on: v || null,
                   taxable_supply_date: !item.duzpManual ? (v || null) : ext.taxable_supply_date,
+                  received_on: !item.receivedManual ? (v || null) : ext.received_on,
                 })
               }} />
             <Field label="Přijat" type="date" value={ext.received_on ?? ''} warning={warningByField.get('received_on')}
-              onChange={v => onUpdateExtracted({ received_on: v || null })} />
+              onChange={v => { onToggleReceived(); onUpdateExtracted({ received_on: v || null }) }} />
             <Field label="Zdanitelné plnění (DUZP)" type="date" value={ext.taxable_supply_date ?? ''} warning={warningByField.get('taxable_supply_date')}
               onChange={v => { onToggleDuzp(); onUpdateExtracted({ taxable_supply_date: v || null }) }} />
             <Field label="Splatnost" type="date" value={ext.due_on ?? ''} warning={warningByField.get('due_on')}
