@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
-import { fetchFioFull, mapFioTransactionToDb } from '@/lib/fio'
+import { fetchFioFull, getFioTokens, mapFioTransactionToDb } from '@/lib/fio'
 
 // Vrátí YYYY-MM-DD pro N dní zpět
 function daysAgo(n: number): string {
@@ -19,12 +19,7 @@ export async function POST(req: NextRequest) {
   const dateTo = searchParams.get('to') ?? today()
 
   // FIO_ucet_1 … FIO_ucet_9 — každý účet má vlastní API token
-  const tokens: { envKey: string; token: string }[] = []
-  for (let i = 1; i <= 9; i++) {
-    const key = `FIO_ucet_${i}`
-    const value = process.env[key]
-    if (value) tokens.push({ envKey: key, token: value })
-  }
+  const tokens = getFioTokens()
 
   if (tokens.length === 0) {
     return NextResponse.json({ error: 'Nejsou nastaveny FIO API tokeny (FIO_ucet_1…)' }, { status: 400 })
