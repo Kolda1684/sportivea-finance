@@ -73,16 +73,25 @@ export interface FioBalance {
   fetchedAt: string
 }
 
+// Tokeny FIO_ucet_1 … FIO_ucet_9 — název env proměnné toleruje velikost písmen
+// i vynechaná podtržítka (FIO_UCET_3, FIOucet3…); envKey se normalizuje na
+// kanonický tvar FIO_ucet_N, pod kterým je účet uložený v bank_accounts.
+export function getFioTokens(): { envKey: string; token: string }[] {
+  const byKey = new Map<string, string>()
+  for (const [key, value] of Object.entries(process.env)) {
+    const m = key.match(/^FIO[_-]?ucet[_-]?([1-9])$/i)
+    if (m && value && !byKey.has(`FIO_ucet_${m[1]}`)) byKey.set(`FIO_ucet_${m[1]}`, value)
+  }
+  return Array.from(byKey.entries())
+    .map(([envKey, token]) => ({ envKey, token }))
+    .sort((a, b) => a.envKey.localeCompare(b.envKey))
+}
+
 const balanceCache = new Map<string, { data: FioBalance; ts: number }>()
 const BALANCE_TTL_MS = 10 * 60 * 1000
 
 export async function getFioBalances(): Promise<FioBalance[]> {
-  const tokens: { envKey: string; token: string }[] = []
-  for (let i = 1; i <= 9; i++) {
-    const key = `FIO_ucet_${i}`
-    const value = process.env[key]
-    if (value) tokens.push({ envKey: key, token: value })
-  }
+  const tokens = getFioTokens()
 
   const today = new Date().toISOString().slice(0, 10)
   const results: FioBalance[] = []
