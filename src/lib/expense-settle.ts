@@ -60,11 +60,11 @@ export async function unsettleExpenseInvoice(
 export async function reconcileForeignExpenseAmounts(supabase: SupabaseClient): Promise<number> {
   const { data: foreign } = await supabase
     .from('expense_invoices')
-    .select('id, amount_czk')
+    .select('id, amount, currency, date, amount_czk')
     .neq('currency', 'CZK')
   if (!foreign || foreign.length === 0) return 0
 
-  const byId = new Map(foreign.map(f => [f.id as string, f.amount_czk as number | null]))
+  const byId = new Map(foreign.map(f => [f.id as string, f]))
   const { data: txs } = await supabase
     .from('bank_transactions')
     .select('amount, amount_czk, currency, matched_expense_invoice_id')
@@ -72,13 +72,27 @@ export async function reconcileForeignExpenseAmounts(supabase: SupabaseClient): 
     .eq('status', 'matched')
 
   let fixed = 0
+  const matchedIds = new Set<string>()
   for (const tx of txs ?? []) {
     const invId = tx.matched_expense_invoice_id as string
+    matchedIds.add(invId)
     const real = realCzkFromTx(tx as TxAmounts)
-    if (real == null || !byId.has(invId)) continue
-    const current = byId.get(invId)
-    if (current == null || Math.abs(current - real) > 0.009) {
+    const inv = byId.get(invId)
+    if (real == null || !inv) continue
+    if (inv.amount_czk == null || Math.abs(Number(inv.amount_czk) - real) > 0.009) {
       await supabase.from('expense_invoices').update({ amount_czk: real }).eq('id', invId)
+      fixed++
+    }
+  }
+
+  // Nespárované cizoměnové faktury: odhad kurzem ČNB k datu faktury.
+  // Fakturoid native_price bývá nespolehlivý (často jen kopie částky v měně).
+  for (const inv of foreign) {
+    if (matchedIds.has(inv.id as string) || inv.amount == null) continue
+    const rate = await getExchangeRate(inv.currency as string, inv.date ? new Date(inv.date as string) : new Date())
+    const estimate = Math.round(Number(inv.amount) * rate * 100) / 100
+    if (inv.amount_czk == null || Math.abs(Number(inv.amount_czk) - estimate) > 0.009) {
+      await supabase.from('expense_invoices').update({ amount_czk: estimate }).eq('id', inv.id)
       fixed++
     }
   }
