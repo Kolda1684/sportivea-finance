@@ -219,7 +219,12 @@ export default function ExpenseInvoicesPage() {
                   <td className="px-4 py-3 font-bold text-red-600">
                     {inv.amount != null ? `${inv.amount.toLocaleString('cs-CZ')} ${inv.currency}` : '—'}
                     {inv.currency !== 'CZK' && inv.amount_czk && (
-                      <span className="text-xs text-muted-foreground ml-1">({formatCZK(inv.amount_czk)})</span>
+                      <span
+                        className="text-xs text-muted-foreground ml-1"
+                        title={inv.status === 'paid' ? 'Skutečná částka dle bankovního výpisu' : 'Odhad kurzem ČNB — upřesní se po spárování s platbou'}
+                      >
+                        ({inv.status === 'paid' ? '' : '~ '}{formatCZK(inv.amount_czk)})
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{inv.variable_symbol ?? '—'}</td>

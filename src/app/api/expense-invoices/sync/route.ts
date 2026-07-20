@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { reconcileForeignExpenseAmounts } from '@/lib/expense-settle'
 
 const FAKTUROID_BASE = 'https://app.fakturoid.cz/api/v3/accounts'
 const TOKEN_URL = 'https://app.fakturoid.cz/api/v3/oauth/token'
@@ -119,6 +120,10 @@ export async function POST() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Upsert přepsal amount_czk kurzem Fakturoidu — u spárovaných cizoměnových
+  // faktur vrať skutečnou částku z bankovního výpisu
+  const reconciled = await reconcileForeignExpenseAmounts(supabase)
+
   // Ulož čas tohoto syncu
   await supabase
     .from('sync_state')
@@ -129,5 +134,6 @@ export async function POST() {
     total: allInvoices.length,
     incremental: isIncremental,
     updated_since: lastSyncedAt ?? null,
+    reconciled_foreign: reconciled,
   })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { settleExpenseInvoice, unsettleExpenseInvoice } from '@/lib/expense-settle'
 
 export async function PATCH(
   req: NextRequest,
@@ -11,7 +12,7 @@ export async function PATCH(
   if (body.action === 'confirm_match') {
     const { data: tx, error: txError } = await supabase
       .from('bank_transactions')
-      .select('id, date, matched_invoice_id, matched_expense_invoice_id')
+      .select('id, date, amount, amount_czk, currency, matched_invoice_id, matched_expense_invoice_id')
       .eq('id', params.id)
       .single()
 
@@ -33,7 +34,7 @@ export async function PATCH(
       await supabase.from('invoices').update({ status: 'paid', paid_on: tx.date }).eq('id', tx.matched_invoice_id)
     }
     if (tx.matched_expense_invoice_id) {
-      await supabase.from('expense_invoices').update({ status: 'paid' }).eq('id', tx.matched_expense_invoice_id)
+      await settleExpenseInvoice(supabase, tx.matched_expense_invoice_id, tx)
     }
 
     return NextResponse.json({ ok: true })
@@ -46,7 +47,7 @@ export async function PATCH(
     // Načti stávající match — pro revert staré faktury
     const { data: existing } = await supabase
       .from('bank_transactions')
-      .select('date, matched_invoice_id, matched_expense_invoice_id')
+      .select('date, amount, amount_czk, currency, matched_invoice_id, matched_expense_invoice_id')
       .eq('id', params.id)
       .single()
 
@@ -55,7 +56,7 @@ export async function PATCH(
       await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
     }
     if (existing?.matched_expense_invoice_id && existing.matched_expense_invoice_id !== expenseInvoiceId) {
-      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+      await unsettleExpenseInvoice(supabase, existing.matched_expense_invoice_id)
     }
 
     await supabase.from('bank_transactions').update({
@@ -72,8 +73,8 @@ export async function PATCH(
     if (invoiceId && existing?.date) {
       await supabase.from('invoices').update({ status: 'paid', paid_on: existing.date }).eq('id', invoiceId)
     }
-    if (expenseInvoiceId) {
-      await supabase.from('expense_invoices').update({ status: 'paid' }).eq('id', expenseInvoiceId)
+    if (expenseInvoiceId && existing) {
+      await settleExpenseInvoice(supabase, expenseInvoiceId, existing)
     }
 
     return NextResponse.json({ ok: true })
@@ -90,7 +91,7 @@ export async function PATCH(
       await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
     }
     if (existing?.matched_expense_invoice_id) {
-      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+      await unsettleExpenseInvoice(supabase, existing.matched_expense_invoice_id)
     }
 
     const { error } = await supabase
@@ -123,7 +124,7 @@ export async function PATCH(
       await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
     }
     if (existing?.matched_expense_invoice_id) {
-      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+      await unsettleExpenseInvoice(supabase, existing.matched_expense_invoice_id)
     }
 
     const { error } = await supabase
@@ -155,7 +156,7 @@ export async function PATCH(
       await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', existing.matched_invoice_id)
     }
     if (existing?.matched_expense_invoice_id) {
-      await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', existing.matched_expense_invoice_id)
+      await unsettleExpenseInvoice(supabase, existing.matched_expense_invoice_id)
     }
 
     const { error } = await supabase

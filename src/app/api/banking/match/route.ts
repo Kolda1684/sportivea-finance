@@ -3,6 +3,7 @@ import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { matchTransaction, matchExpenseTransaction, DbTransaction, DbInvoice, DbExpenseInvoice } from '@/lib/matching'
 import { classifyTransaction, isCardTransaction, type ClassifiableTx } from '@/lib/bank-classify'
 import { setRateCache } from '@/lib/exchange-rates'
+import { settleExpenseInvoice } from '@/lib/expense-settle'
 
 export async function POST() {
   const supabase = createAdminSupabaseClient()
@@ -172,7 +173,7 @@ export async function POST() {
       }).eq('id', tx.id)
       if (result.invoiceId) {
         usedExpenseInvoiceIds.add(result.invoiceId)
-        await supabase.from('expense_invoices').update({ status: 'paid' }).eq('id', result.invoiceId)
+        await settleExpenseInvoice(supabase, result.invoiceId, tx)
       }
       stats.auto++
     } else {

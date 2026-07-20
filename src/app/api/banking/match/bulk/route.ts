@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
+import { settleExpenseInvoice, unsettleExpenseInvoice } from '@/lib/expense-settle'
 
 // Hromadné schválení / odmítnutí návrhů (pending_review)
 // Body: { tx_ids: string[], action: 'approve' | 'reject' }
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   // Načti aktuální stav (kvůli sekundárním aktualizacím invoice/expense_invoice)
   const { data: txs } = await supabase
     .from('bank_transactions')
-    .select('id, date, matched_invoice_id, matched_expense_invoice_id')
+    .select('id, date, amount, amount_czk, currency, matched_invoice_id, matched_expense_invoice_id')
     .in('id', txIds)
 
   if (!txs) return NextResponse.json({ error: 'Načtení selhalo' }, { status: 500 })
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
         await supabase.from('invoices').update({ status: 'paid', paid_on: tx.date }).eq('id', tx.matched_invoice_id)
       }
       if (tx.matched_expense_invoice_id) {
-        await supabase.from('expense_invoices').update({ status: 'paid' }).eq('id', tx.matched_expense_invoice_id)
+        await settleExpenseInvoice(supabase, tx.matched_expense_invoice_id, tx)
       }
       processed++
     } else {
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
         await supabase.from('invoices').update({ status: 'open', paid_on: null }).eq('id', tx.matched_invoice_id)
       }
       if (tx.matched_expense_invoice_id) {
-        await supabase.from('expense_invoices').update({ status: 'unpaid' }).eq('id', tx.matched_expense_invoice_id)
+        await unsettleExpenseInvoice(supabase, tx.matched_expense_invoice_id)
       }
       const { error } = await supabase
         .from('bank_transactions')
