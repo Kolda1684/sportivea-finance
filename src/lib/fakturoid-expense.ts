@@ -46,18 +46,51 @@ function fakturoidHeaders(token: string): HeadersInit {
   }
 }
 
+// Porovnání názvů firem: bez diakritiky, interpunkce a právních přípon
+// (OpenAI, LLC == OpenAI LLC == openai llc)
+function normalizeSubjectName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(s r o|a s|spol s r o|inc|llc|ltd|gmbh|pbc|corp|co)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function searchSubjects(query: string, token: string, slug: string): Promise<Record<string, unknown>[]> {
+  const url = `${FAKTUROID_BASE}/${slug}/subjects/search.json?query=${encodeURIComponent(query)}`
+  const res = await fetch(url, { headers: fakturoidHeaders(token) })
+  if (!res.ok) return []
+  const list = await res.json()
+  return Array.isArray(list) ? list : []
+}
+
+// Dohledání dodavatele: IČO → DIČ → jméno; nový kontakt se zakládá až když
+// nic nesedí (zahraniční dodavatelé IČO nemají — bez fallbacku se duplikovali)
 async function findOrCreateSubject(extracted: ExtractedInvoice, token: string, slug: string): Promise<number | null> {
   const headers = fakturoidHeaders(token)
 
   if (extracted.supplier_ico) {
-    const url = `${FAKTUROID_BASE}/${slug}/subjects/search.json?query=${encodeURIComponent(extracted.supplier_ico)}`
-    const res = await fetch(url, { headers })
-    if (res.ok) {
-      const list = await res.json()
-      if (Array.isArray(list)) {
-        const found = list.find((s: { registration_no?: string }) => s.registration_no === extracted.supplier_ico)
-        if (found) return found.id as number
-      }
+    const list = await searchSubjects(extracted.supplier_ico, token, slug)
+    const found = list.find(s => (s as { registration_no?: string }).registration_no === extracted.supplier_ico)
+    if (found) return found.id as number
+  }
+
+  if (extracted.supplier_dic) {
+    const dic = extracted.supplier_dic.replace(/\s/g, '').toUpperCase()
+    const list = await searchSubjects(dic, token, slug)
+    const found = list.find(s => ((s as { vat_no?: string }).vat_no ?? '').replace(/\s/g, '').toUpperCase() === dic)
+    if (found) return found.id as number
+  }
+
+  if (extracted.supplier_name) {
+    const wanted = normalizeSubjectName(extracted.supplier_name)
+    if (wanted) {
+      const list = await searchSubjects(extracted.supplier_name, token, slug)
+      const found = list.find(s => normalizeSubjectName(String((s as { name?: string }).name ?? '')) === wanted)
+      if (found) return found.id as number
     }
   }
 
