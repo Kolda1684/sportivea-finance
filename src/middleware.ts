@@ -13,6 +13,7 @@ const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/logout', '/api/notion/w
 const INTERNAL_CRON_API_ROUTES = [
   '/api/invoices/sync',
   '/api/expense-invoices/sync',
+  '/api/expense-invoices/mark-overdue-paid',
   '/api/banking/sync',
   '/api/banking/match',
 ]
