@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
   await step('expense_fakturoid', '/api/expense-invoices/sync') // 2. přijaté faktury
   await step('fio', '/api/banking/sync')                        // 3. bankovní pohyby
   await step('matching', '/api/banking/match')                  // 4. párování
+  await step('overdue_paid', '/api/expense-invoices/mark-overdue-paid') // 5. náklady po splatnosti = zaplacené
 
   console.log('[cron/sync] hotovo:', JSON.stringify(results))
   return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), results })
