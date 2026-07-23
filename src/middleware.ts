@@ -29,6 +29,7 @@ const ADMIN_ONLY_ROUTES = [
   '/prehled',
   '/crm',
   '/nastaveni',
+  '/projekty',
 ]
 
 // Tyto API routes jsou pouze pro adminy
@@ -47,6 +48,7 @@ const ADMIN_ONLY_API_PREFIXES = [
   '/api/expense-invoices',
   '/api/settings',
   '/api/notion',
+  '/api/projects',
 ]
 
 function isPublicRoute(pathname: string) {
