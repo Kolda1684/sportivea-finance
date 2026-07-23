@@ -17,6 +17,7 @@ import {
   FileText,
   Percent,
   ArrowDownUp,
+  FolderKanban,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -33,6 +34,7 @@ const adminNavItems = [
   { href: '/income', label: 'Příjmy a projekty', icon: DollarSign },
   { href: '/costs', label: 'Přehled nákladů', icon: TrendingDown, exact: true },
   { href: '/ziskovost', label: 'Ziskovost klientů', icon: Percent },
+  { href: '/projekty', label: 'Projekty', icon: FolderKanban },
   { href: '/cashflow', label: 'Cash flow', icon: ArrowDownUp },
   { href: '/costs/salaries', label: 'Platy majitelů', icon: Wallet },
   {
