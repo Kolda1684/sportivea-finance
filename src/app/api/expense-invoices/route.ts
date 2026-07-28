@@ -12,7 +12,23 @@ export async function GET() {
     .eq('review_status', 'approved')
     .order('date', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+
+  // U cizoměnových faktur rozliš, jestli je částka v Kč skutečná (z bankovního
+  // výpisu), nebo jen odhad kurzem ČNB. Stav "zaplaceno" to neurčuje — faktury
+  // po splatnosti se označují zaplacené i bez nalezené platby.
+  const rows = data ?? []
+  const foreignIds = rows.filter(r => r.currency && r.currency !== 'CZK').map(r => r.id)
+  const bankBacked = new Set<string>()
+  if (foreignIds.length > 0) {
+    const { data: txs } = await supabase
+      .from('bank_transactions')
+      .select('matched_expense_invoice_id')
+      .in('matched_expense_invoice_id', foreignIds)
+      .eq('status', 'matched')
+    for (const tx of txs ?? []) bankBacked.add(tx.matched_expense_invoice_id as string)
+  }
+
+  return NextResponse.json(rows.map(r => ({ ...r, czk_from_bank: bankBacked.has(r.id) })))
 }
 
 export async function POST(req: NextRequest) {

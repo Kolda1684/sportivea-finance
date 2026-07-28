@@ -62,7 +62,11 @@ function inRange(date: string | null, month: string | null, from: string | null,
 export async function computeProjectStats(supabase: SupabaseClient, project: ProjectRow) {
   const keywords = parseKeywords(project.keywords)
   if (keywords.length === 0) {
-    return { stats: { income: 0, costs: 0, travel: 0, profit: 0 }, incomeRows: [], costRows: [] }
+    return {
+      stats: { income: 0, costs: 0, travel: 0, profit: 0 },
+      incomeRows: [], costRows: [],
+      error: 'Klíčová slova jsou prázdná nebo příliš krátká (min. 2 znaky)',
+    }
   }
 
   const costOr = keywords.map(k => `task_name.ilike.%${k}%`).join(',')
@@ -84,10 +88,16 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
       .order('date', { ascending: false }),
   ])
 
+  // Chybu dotazu nesmíme spolknout — projekt by tiše ukázal 0 Kč jako fakt
+  const error = costsRes.error?.message ?? incomeRes.error?.message ?? null
+
   const costRows = (((costsRes.data ?? []) as ProjectCostRow[]))
     .filter(r => inRange(r.date, r.month, project.date_from, project.date_to))
   const incomeRows = ((incomeRes.data ?? []) as ProjectIncomeRow[])
     .filter(r => inRange(r.date, r.month, project.date_from, project.date_to))
+
+  // Supabase vrací max 1000 řádků — u příliš širokého slova by součet tiše chyběl
+  const truncated = costRows.length >= 1000 || incomeRows.length >= 1000
 
   const travel = costRows.filter(r => r.task_type === 'Cesťák').reduce((s, r) => s + (r.price ?? 0), 0)
   const work = costRows.filter(r => r.task_type !== 'Cesťák').reduce((s, r) => s + (r.price ?? 0), 0)
@@ -97,5 +107,6 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
     stats: { income, costs: work + travel, travel, profit: income - work - travel },
     incomeRows,
     costRows,
+    error: error ?? (truncated ? 'Klíčové slovo je příliš široké — zobrazeno jen prvních 1000 řádků, součet není úplný' : null),
   }
 }
