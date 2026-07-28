@@ -19,6 +19,7 @@ interface ProjectWithStats {
   stats: { income: number; costs: number; travel: number; profit: number }
   incomeRows: ProjectIncomeRow[]
   costRows: ProjectCostRow[]
+  error?: string | null
 }
 
 interface FormState {
@@ -179,6 +180,10 @@ export default function ProjectsPage() {
                     </div>
                   </div>
                 </div>
+
+                {p.error && (
+                  <p className="px-4 pb-3 -mt-1 text-xs text-amber-700 bg-amber-50/60">⚠️ {p.error}</p>
+                )}
 
                 {isOpen && (
                   <div className="border-t grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">

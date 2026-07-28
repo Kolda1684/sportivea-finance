@@ -22,6 +22,7 @@ interface ExpenseInvoice {
   variable_symbol: string | null
   status: string
   note: string | null
+  czk_from_bank?: boolean   // true = částka v Kč je z bankovního výpisu, ne odhad ČNB
 }
 
 function AddModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (inv: ExpenseInvoice) => void }) {
@@ -221,9 +222,9 @@ export default function ExpenseInvoicesPage() {
                     {inv.currency !== 'CZK' && inv.amount_czk && (
                       <span
                         className="text-xs text-muted-foreground ml-1"
-                        title={inv.status === 'paid' ? 'Skutečná částka dle bankovního výpisu' : 'Odhad kurzem ČNB — upřesní se po spárování s platbou'}
+                        title={inv.czk_from_bank ? 'Skutečná částka dle bankovního výpisu' : 'Odhad kurzem ČNB — upřesní se po spárování s platbou'}
                       >
-                        ({inv.status === 'paid' ? '' : '~ '}{formatCZK(inv.amount_czk)})
+                        ({inv.czk_from_bank ? '' : '~ '}{formatCZK(inv.amount_czk)})
                       </span>
                     )}
                   </td>
