@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { downloadInvoiceFile } from '@/lib/invoice-storage'
 import { pushExpenseToFakturoid } from '@/lib/fakturoid-expense'
+import { reviewDraft, explainReasons } from '@/lib/invoice-review'
 import type { ExtractedInvoice } from '@/lib/invoice-extract'
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createAdminSupabaseClient()
   const { data: draft, error: fetchErr } = await supabase
     .from('expense_invoices')
-    .select('id, extracted_data, file_path, original_filename, review_status')
+    .select('id, supplier_name, note, amount, ocr_warnings, extracted_data, file_path, original_filename, review_status')
     .eq('id', params.id)
     .single()
 
@@ -20,6 +21,36 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   if (!draft.extracted_data) {
     return NextResponse.json({ error: 'Draft nemá extrahovaná data' }, { status: 400 })
+  }
+
+  // Brána proti tichému zápisu podezřelé faktury. Sedí schválně tady, a ne
+  // v agentovi: model by ji jinak mohl obejít tím, že by prostě nezavolal
+  // potvrzení. Bez `force` se rizikový draft nezapíše.
+  let force = false
+  try {
+    force = (await req.json())?.force === true
+  } catch {
+    // prázdné tělo = bez force
+  }
+
+  if (!force) {
+    const verdict = await reviewDraft(supabase, {
+      id: draft.id,
+      supplier_name: draft.supplier_name,
+      invoice_number: draft.note,
+      amount: draft.amount,
+      warnings: Array.isArray(draft.ocr_warnings) ? draft.ocr_warnings : [],
+    })
+    if (!verdict.clear) {
+      return NextResponse.json(
+        {
+          review_required: true,
+          reasons: verdict.reasons,
+          message: explainReasons(verdict.reasons),
+        },
+        { status: 409 }
+      )
+    }
   }
 
   const extracted = draft.extracted_data as ExtractedInvoice
