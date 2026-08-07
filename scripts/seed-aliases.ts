@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { aliasKey, aliasMapKey, normalizeText, type AliasKind, type CounterpartyAlias } from '../src/lib/counterparty'
+import { aliasKey, aliasMapKey, normalizeText, type AliasKind, type CounterpartyAlias, type TransactionLike } from '../src/lib/counterparty'
 
 const envPath = fileURLToPath(new URL('../.env.local', import.meta.url))
 const env = Object.fromEntries(
@@ -32,6 +32,17 @@ interface Pair {
   message: string | null
 }
 
+/**
+ * Deník má sloupec "account", rozpoznávání čte "counterparty_account".
+ * Bez tohohle převodu by se slovník naučil jen platby kartou a všechny převody
+ * by tiše propadly.
+ */
+const asTransaction = (p: Pair): TransactionLike => ({
+  message: p.message,
+  counterparty_name: null,
+  counterparty_account: p.account,
+})
+
 const pairs: Pair[] = JSON.parse(readFileSync(process.argv[2] ?? '/tmp/pairs.json', 'utf8'))
 const shouldWrite = process.argv.includes('--write')
 
@@ -40,7 +51,7 @@ function learn(rows: Pair[]) {
   const votes = new Map<string, { kind: AliasKind; pattern: string; labels: Map<string, number> }>()
   for (const p of rows) {
     if (!p.desc?.trim()) continue
-    const key = aliasKey(p)
+    const key = aliasKey(asTransaction(p))
     if (!key) continue
     const id = aliasMapKey(key.kind, key.pattern)
     const entry = votes.get(id) ?? { kind: key.kind, pattern: key.pattern, labels: new Map() }
@@ -94,11 +105,11 @@ async function main() {
     // a jsou samy o sobě dokladem, že tuhle práci nikdo dělat nechce.
     if (/^\s*n[aá]kup:/i.test(p.desc)) {
       unlabelled++
-      const k = aliasKey(p)
+      const k = aliasKey(asTransaction(p))
       if (k && dict.get(aliasMapKey(k.kind, k.pattern))) rescued++
       continue
     }
-    const key = aliasKey(p)
+    const key = aliasKey(asTransaction(p))
     const found = key ? dict.get(aliasMapKey(key.kind, key.pattern)) : undefined
     if (!found) {
       unknown++
