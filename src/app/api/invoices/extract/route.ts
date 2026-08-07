@@ -51,6 +51,22 @@ export async function POST(req: NextRequest) {
     ? { id: duplicate.invoiceId, supplier_name: duplicate.supplier, date: duplicate.date, number: duplicate.number }
     : null
 
+  // Duplicitní draft se vůbec nezakládá. Dřív se založil vždycky, takže každé
+  // přeposlání téže faktury přidalo do tabulky další kopii — a kontrola pak
+  // správně hlásila „už ji máš" na duplikát, který právě vznikl.
+  if (duplicateOf) {
+    return NextResponse.json({
+      draft_id: null,
+      extracted,
+      warnings,
+      duplicate_of: duplicateOf,
+      review_required: true,
+      review_reasons: verdict.reasons,
+      review_message: explainReasons(verdict.reasons),
+      file_path: null,
+    })
+  }
+
   // 3) Insert draft (před uploadem do storage — potřebujeme ID jako prefix)
   const { data: draft, error: insErr } = await supabase
     .from('expense_invoices')
