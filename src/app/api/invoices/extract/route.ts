@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { extractInvoiceData, processFileBuffer } from '@/lib/invoice-extract'
 import { uploadInvoiceFile } from '@/lib/invoice-storage'
+import { reviewDraft, explainReasons } from '@/lib/invoice-review'
 
 const MAX_MB = 10
 
@@ -34,21 +35,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'AI extrakce selhala' }, { status: 502 })
   }
 
-  // 2) Duplicate detection — match podle (ico, vs, amount, date)
+  // 2) Duplicate detection — primárně (dodavatel, číslo dokladu).
+  // IČO je v datech vyplněné u nuly z 300 faktur a VS chybí u třetiny, takže
+  // původní klíč (IČO + VS + částka + datum) se u 97 z nich vůbec nespustil.
+  // Číslo dokladu má naopak 100% pokrytí a nula kolizí.
   const amount = extracted.total_with_vat ?? extracted.total_without_vat ?? null
-  let duplicateOf: { id: string; supplier_name: string | null; amount: number | null; date: string | null; review_status: string } | null = null
-  if (extracted.supplier_ico || extracted.variable_symbol) {
-    const dedupQuery = supabase
-      .from('expense_invoices')
-      .select('id, supplier_name, amount, date, review_status')
-      .limit(1)
-    if (extracted.supplier_ico) dedupQuery.eq('supplier_ico', extracted.supplier_ico)
-    if (extracted.variable_symbol) dedupQuery.eq('variable_symbol', extracted.variable_symbol)
-    if (amount !== null) dedupQuery.eq('amount', amount)
-    if (extracted.issued_on) dedupQuery.eq('date', extracted.issued_on)
-    const { data } = await dedupQuery
-    if (data && data.length > 0) duplicateOf = data[0]
-  }
+  const verdict = await reviewDraft(supabase, {
+    supplier_name: extracted.supplier_name,
+    invoice_number: extracted.invoice_number,
+    amount,
+    warnings,
+  })
+  const duplicate = verdict.reasons.find(r => r.kind === 'duplicate')
+  const duplicateOf = duplicate
+    ? { id: duplicate.invoiceId, supplier_name: duplicate.supplier, date: duplicate.date, number: duplicate.number }
+    : null
 
   // 3) Insert draft (před uploadem do storage — potřebujeme ID jako prefix)
   const { data: draft, error: insErr } = await supabase
@@ -94,6 +95,10 @@ export async function POST(req: NextRequest) {
     extracted,
     warnings,
     duplicate_of: duplicateOf,
+    // Serverové posouzení: agent podle něj pozná, jestli se má ptát.
+    review_required: !verdict.clear,
+    review_reasons: verdict.reasons,
+    review_message: verdict.clear ? null : explainReasons(verdict.reasons),
     file_path: filePath,
   })
 }
