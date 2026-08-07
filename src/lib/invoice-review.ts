@@ -99,16 +99,14 @@ export async function reviewDraft(supabase: SupabaseClient, draft: DraftLike): P
 
   if (sameSupplier.length === 0) {
     reasons.push({ kind: 'new_supplier', supplier: draft.supplier_name })
-  } else if (draft.amount != null && draft.amount > 0) {
-    // Medián, ne průměr: jedna velká faktura by průměr utáhla a další velké by
-    // pak prošly bez povšimnutí.
-    const amounts = sameSupplier
-      .map(r => Math.abs(Number(r.amount) || 0))
-      .filter(a => a > 0)
-      .sort((a, b) => a - b)
-    const median = amounts.length ? amounts[Math.floor(amounts.length / 2)]! : 0
-    if (median > 0 && draft.amount > median * 5) {
-      reasons.push({ kind: 'unusual_amount', amount: draft.amount, usual: median })
+  } else if (draft.amount != null && draft.amount > 0 && sameSupplier.length >= 3) {
+    // Proti dosud nejvyšší faktuře, ne proti mediánu. U Mety chodí od 43 Kč do
+    // 3 000 Kč, takže medián × 5 se trefil i do úplně běžné faktury a ptal se
+    // zbytečně. Zajímavá je až částka, která vybočuje ze všeho dosavadního.
+    const amounts = sameSupplier.map(r => Math.abs(Number(r.amount) || 0)).filter(a => a > 0)
+    const max = amounts.length ? Math.max(...amounts) : 0
+    if (max > 0 && draft.amount > max * 3) {
+      reasons.push({ kind: 'unusual_amount', amount: draft.amount, usual: max })
     }
   }
 
@@ -127,7 +125,7 @@ export function explainReasons(reasons: ReviewReason[]): string {
         case 'new_supplier':
           return `tenhle dodavatel tu ještě nebyl (${r.supplier ?? '?'})`
         case 'unusual_amount':
-          return `částka ${r.amount} je nezvykle vysoká, obvykle bývá kolem ${Math.round(r.usual)}`
+          return `částka ${r.amount} výrazně přesahuje dosud nejvyšší fakturu od tohoto dodavatele (${Math.round(r.usual)})`
       }
     })
     .join('; ')
