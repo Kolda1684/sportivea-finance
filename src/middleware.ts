@@ -18,6 +18,21 @@ const INTERNAL_CRON_API_ROUTES = [
   '/api/banking/match',
 ]
 
+// Co smí volat CFO agent (Telegram bot) pod hlavičkou x-agent-secret.
+// Záměrně užší než admin session a vázané na metodu — samotný prefix
+// '/api/invoices' by jinak pustil i cron sync. Vlastní tajemství, ne
+// CRON_SECRET: jiný rozsah práv, jiná rotace.
+const AGENT_API_RULES: { prefix: string; methods: string[] }[] = [
+  { prefix: '/api/invoices/extract', methods: ['POST'] },
+  { prefix: '/api/invoices/drafts', methods: ['GET', 'POST', 'PATCH', 'DELETE'] },
+  { prefix: '/api/chat', methods: ['POST'] },
+  { prefix: '/api/income', methods: ['GET'] },
+  { prefix: '/api/costs', methods: ['GET'] },
+  { prefix: '/api/banking/transactions', methods: ['GET'] },
+  { prefix: '/api/invoices', methods: ['GET'] },
+  { prefix: '/api/expense-invoices', methods: ['GET'] },
+]
+
 // Tyto routes jsou pouze pro adminy
 const ADMIN_ONLY_ROUTES = [
   '/dashboard',
@@ -84,6 +99,15 @@ function isAuthorizedInternalCronRequest(request: NextRequest) {
   return Boolean(secret && request.headers.get('x-internal-secret') === secret)
 }
 
+function isAuthorizedAgentRequest(request: NextRequest, pathname: string) {
+  const secret = process.env.AGENT_API_SECRET
+  if (!secret || request.headers.get('x-agent-secret') !== secret) return false
+  return AGENT_API_RULES.some(rule =>
+    (pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)) &&
+    rule.methods.includes(request.method)
+  )
+}
+
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
@@ -98,6 +122,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (INTERNAL_CRON_API_ROUTES.includes(pathname) && isAuthorizedInternalCronRequest(request)) {
+    return NextResponse.next()
+  }
+
+  if (isAuthorizedAgentRequest(request, pathname)) {
     return NextResponse.next()
   }
 
