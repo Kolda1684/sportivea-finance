@@ -35,6 +35,22 @@ export function MonthResult({ monthLabel, income, wages, travel, fixed, extra, s
   const margin = income > 0 ? Math.round((profit / income) * 100) : null
   const positive = profit >= 0
 
+  // Fixní náklady běží každý měsíc, i v tom, kde se zatím nic nestalo. Bez
+  // tohohle rozlišení by budoucí měsíc hlásil poplašnou červenou ztrátu.
+  const noActivity = income === 0 && wages + travel + extra + salaries === 0
+
+  if (noActivity) {
+    return (
+      <section className="rounded-2xl border border-gray-200 bg-gray-50/70 p-6 sm:p-8">
+        <p className="text-sm font-medium text-gray-600">🗓️ Výsledek · {monthLabel}</p>
+        <p className="mt-1 text-2xl font-semibold text-gray-700">Zatím žádná aktivita</p>
+        <p className="mt-2 text-sm text-gray-500">
+          Žádné příjmy ani odvedená práce. Fixní náklady {formatCZK(fixed)} běží dál.
+        </p>
+      </section>
+    )
+  }
+
   return (
     <section
       className={cn(
