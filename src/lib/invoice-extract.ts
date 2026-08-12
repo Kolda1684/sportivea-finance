@@ -140,12 +140,17 @@ async function callClaude(buffer: Buffer, mediaType: 'application/pdf' | 'image/
     : { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: base64 } }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    model: 'claude-opus-5',
+    // Opus 5 přemýšlí ve výchozím stavu a max_tokens kryje přemýšlení i odpověď
+    // dohromady — s původními 4096 by se JSON usekl uprostřed.
+    max_tokens: 16000,
+    output_config: { effort: 'medium' },
     messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
   })
 
-  return response.content[0]?.type === 'text' ? response.content[0].text : ''
+  // S přemýšlením není textová odpověď nutně první blok
+  const textBlock = response.content.find(b => b.type === 'text')
+  return textBlock?.type === 'text' ? textBlock.text : ''
 }
 
 export async function extractInvoiceData(buffer: Buffer, mediaType: 'application/pdf' | 'image/jpeg'): Promise<{

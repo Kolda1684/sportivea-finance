@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Přiřazování řádků k projektu:
-// - náklady: klíčové slovo v názvu tasku (variable_costs.task_name, jen is_done)
+// - náklady: ruční přiřazení (variable_costs.project_id) NEBO klíčové slovo
+//   v názvu tasku; ruční přiřazení k jinému projektu klíčové slovo přebíjí
 // - příjmy: klíčové slovo v project_name / note / client
 // - období projektu (date_from/date_to): řádek se filtruje podle date,
 //   při chybějícím date podle měsíce ("M,YYYY")
@@ -18,6 +19,7 @@ export interface ProjectRow {
 }
 
 export interface ProjectCostRow {
+  id: string
   team_member: string | null
   client: string | null
   task_name: string | null
@@ -26,6 +28,7 @@ export interface ProjectCostRow {
   month: string | null
   hours: number | null
   price: number | null
+  project_id?: string | null   // ruční přiřazení; má přednost před klíčovými slovy
 }
 
 export interface ProjectIncomeRow {
@@ -74,24 +77,39 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
     .flatMap(k => [`project_name.ilike.%${k}%`, `note.ilike.%${k}%`, `client.ilike.%${k}%`])
     .join(',')
 
-  const [costsRes, incomeRes] = await Promise.all([
-    supabase
-      .from('variable_costs')
-      .select('team_member, client, task_name, task_type, date, month, hours, price')
-      .eq('is_done', true)
-      .or(costOr)
+  const BASE_COLS = 'id, team_member, client, task_name, task_type, date, month, hours, price'
+  // Dokud neproběhne migrace 032, sloupec project_id neexistuje — pak se jede
+  // jen podle klíčových slov, místo aby projekt tiše ukázal nulu.
+  const missingProjectColumn = (m?: string) => !!m && m.includes('project_id')
+
+  const keywordQuery = (cols: string) => supabase
+    .from('variable_costs').select(cols).eq('is_done', true).or(costOr)
+    .order('date', { ascending: false })
+
+  const [firstTry, assignedRes, incomeRes] = await Promise.all([
+    keywordQuery(`${BASE_COLS}, project_id`),
+    // Ručně přiřazené tasky — započítají se i bez shody klíčového slova
+    supabase.from('variable_costs').select(`${BASE_COLS}, project_id`)
+      .eq('is_done', true).eq('project_id', project.id)
       .order('date', { ascending: false }),
-    supabase
-      .from('income')
-      .select('client, project_name, amount, date, month, status, note')
-      .or(incomeOr)
-      .order('date', { ascending: false }),
+    supabase.from('income').select('client, project_name, amount, date, month, status, note')
+      .or(incomeOr).order('date', { ascending: false }),
   ])
 
-  // Chybu dotazu nesmíme spolknout — projekt by tiše ukázal 0 Kč jako fakt
-  const error = costsRes.error?.message ?? incomeRes.error?.message ?? null
+  const hasProjectColumn = !missingProjectColumn(firstTry.error?.message)
+  const costsRes = hasProjectColumn ? firstTry : await keywordQuery(BASE_COLS)
 
-  const costRows = (((costsRes.data ?? []) as ProjectCostRow[]))
+  const error = [costsRes.error?.message, assignedRes.error?.message, incomeRes.error?.message]
+    .find(m => m && !missingProjectColumn(m)) ?? null
+
+  const byKeyword = ((costsRes.data ?? []) as unknown as ProjectCostRow[])
+    // ruční přiřazení k jinému projektu přebíjí shodu klíčového slova
+    .filter(r => r.project_id == null || r.project_id === project.id)
+  const assigned = (assignedRes.data ?? []) as unknown as ProjectCostRow[]
+
+  const seen = new Set<string>()
+  const costRows = [...assigned, ...byKeyword]
+    .filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
     .filter(r => inRange(r.date, r.month, project.date_from, project.date_to))
   const incomeRows = ((incomeRes.data ?? []) as ProjectIncomeRow[])
     .filter(r => inRange(r.date, r.month, project.date_from, project.date_to))
