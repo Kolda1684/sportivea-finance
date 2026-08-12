@@ -3,7 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
-  "_comment_regions": "Databáze i Fio jsou v Evropě. Bez tohohle běžely funkce ve Washingtonu a každý dotaz letěl přes Atlantik a zpět.",
   "regions": ["fra1"],
   "crons": [
     {
