@@ -172,21 +172,20 @@ export default function SalariesPage() {
     return m
   }, [ownerIncome])
 
-  // Průměr na měsíc — počítá se jen z měsíců, kde majitel něco má. Dělit vždy
-  // dvanácti by u rozdělaného roku průměr uměle srazilo.
+  const MESICE = ['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec']
+
+  // Průměr od ledna do dneška — stejný dělitel pro oba, jinak nejdou srovnat.
+  // U minulých let se dělí celým rokem.
+  const now = new Date()
+  const elapsedMonths = year === now.getFullYear() ? now.getMonth() + 1 : 12
+  const rangeLabel = elapsedMonths === 1 ? MESICE[0] : `leden–${MESICE[elapsedMonths - 1]}`
+
   const perOwner = useMemo(() => owners.map(o => {
-    const gridMonths = months.filter(mo => (lookup[o]?.[mo]?.amount ?? 0) > 0)
-    const incomeMonths = ownerIncome.filter(i => i.billed_to === o && (i.amount ?? 0) > 0).map(i => i.month)
-    const activeMonths = new Set<string>([...gridMonths, ...incomeMonths])
     const grid = totalsByOwner[o]?.total ?? 0
     const income = incomeByOwner[o] ?? 0
     const total = grid + income
-    return {
-      owner: o, grid, income, total,
-      monthCount: activeMonths.size,
-      avg: activeMonths.size > 0 ? total / activeMonths.size : 0,
-    }
-  }), [owners, months, lookup, ownerIncome, totalsByOwner, incomeByOwner])
+    return { owner: o, grid, income, total, avg: total / elapsedMonths }
+  }), [owners, totalsByOwner, incomeByOwner, elapsedMonths])
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1]
@@ -231,9 +230,8 @@ export default function SalariesPage() {
                 <span className="ml-1.5 text-sm font-medium text-violet-700/80">/ měsíc</span>
               </p>
               <p className="mt-1.5 text-xs text-violet-900/70">
-                {formatCZK(o.total)} za {o.monthCount}{' '}
-                {o.monthCount === 1 ? 'měsíc' : o.monthCount < 5 ? 'měsíce' : 'měsíců'}
-                {o.income > 0 && <> · z toho {formatCZK(o.income)} vlastní fakturací</>}
+                {formatCZK(o.total)} za {rangeLabel} ÷ {elapsedMonths}
+                {o.income > 0 && <> · z toho {formatCZK(o.income)} vlastní fakturou</>}
               </p>
             </div>
           ))}
