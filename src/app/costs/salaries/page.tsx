@@ -377,7 +377,7 @@ export default function SalariesPage() {
 
       <p className="text-xs text-muted-foreground">
         💡 Tip: Kliknutím na hodiny <Clock className="inline h-3 w-3" /> označíš plat jako vyplaceno (dnes).
-        Plat lze pozdějí napárovat s bankovní transakcí přes detail.
+        Platy majitelů jdou mimo firemní účet, takže se nepárují s bankovním výpisem — počítají se rovnou do nákladů.
       </p>
 
       {/* ── Faktury majitelů z Příjmů (billed_to = majitel) ─────────────── */}

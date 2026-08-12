@@ -17,6 +17,7 @@ export default function AllCostsPage() {
   const [variable, setVariable] = useState<VariableCost[]>([])
   const [fixed, setFixed] = useState<FixedCost[]>([])
   const [extra, setExtra] = useState<ExtraCost[]>([])
+  const [salaries, setSalaries] = useState<{ amount: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState(getCurrentMonth())
 
@@ -24,14 +25,16 @@ export default function AllCostsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [varRes, fixRes, extRes] = await Promise.all([
+    const [varRes, fixRes, extRes, salRes] = await Promise.all([
       fetch(`/api/costs/variable?month=${month}`).then(r => r.json()),
       fetch('/api/costs/fixed').then(r => r.json()),
       fetch(`/api/costs/extra?month=${month}`).then(r => r.json()),
+      fetch(`/api/costs/salaries?month=${month}`).then(r => r.ok ? r.json() : []),
     ])
     setVariable(varRes)
     setFixed(fixRes.filter((f: FixedCost) => f.active))
     setExtra(extRes)
+    setSalaries(Array.isArray(salRes) ? salRes : [])
     setLoading(false)
   }, [month])
 
@@ -44,7 +47,10 @@ export default function AllCostsPage() {
   const totalTravel = doneVariable.filter(isTravel).reduce((s, v) => s + (v.price ?? 0), 0)
   const totalFixed = fixed.reduce((s, f) => s + f.amount, 0)
   const totalExtra = extra.reduce((s, e) => s + e.amount, 0)
-  const totalAll = totalWages + totalTravel + totalFixed + totalExtra
+  // Platy majitelů jdou mimo firemní účet, ale jsou to náklady jako každé jiné —
+  // bez nich by tahle stránka ukazovala nižší číslo než dashboard
+  const totalSalaries = salaries.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+  const totalAll = totalWages + totalTravel + totalFixed + totalExtra + totalSalaries
 
   // Náklady po klientech (jen variabilní práce; cesťáky bez klienta jdou do "bez klienta")
   const byClient = useMemo(() => {
@@ -93,12 +99,14 @@ export default function AllCostsPage() {
       </div>
 
       {/* KPI karty */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {([
-          { label: 'Mzdy',     value: totalWages,  hint: 'práce z Notionu', color: 'text-blue-600' },
-          { label: 'Cestovné', value: totalTravel, hint: 'náhrady cest',     color: 'text-teal-600' },
-          { label: 'Extra',    value: totalExtra,  hint: `${extra.length} položek`, color: 'text-orange-600' },
-          { label: 'Fixní',    value: totalFixed,  hint: `${fixed.length} položek`, color: 'text-purple-600' },
+          // barvy i emoji drží stejný jazyk jako rozpad nákladů na dashboardu
+          { label: '🧑‍💻 Mzdy',    value: totalWages,    hint: 'práce z Notionu',        color: 'text-blue-600' },
+          { label: '👔 Platy',    value: totalSalaries, hint: 'majitelé, mimo účet',    color: 'text-violet-600' },
+          { label: '🏢 Fixní',    value: totalFixed,    hint: `${fixed.length} položek`, color: 'text-amber-600' },
+          { label: '🧾 Extra',    value: totalExtra,    hint: `${extra.length} položek`, color: 'text-orange-600' },
+          { label: '🚗 Cestovné', value: totalTravel,   hint: 'náhrady cest',           color: 'text-teal-600' },
           { label: 'Celkem',   value: totalAll,    hint: 'vše dohromady',    color: 'text-gray-900' },
         ]).map(card => (
           <div key={card.label} className="rounded-xl border bg-white p-4">
