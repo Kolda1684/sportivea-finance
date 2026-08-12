@@ -1,12 +1,11 @@
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { getCurrentMonth, formatMonth } from '@/lib/utils'
-import { KpiCard } from '@/components/dashboard/KpiCard'
+import { MonthResult } from '@/components/dashboard/MonthResult'
 import { YearlyBarChart } from '@/components/dashboard/YearlyBarChart'
 import { PnlTable } from '@/components/dashboard/PnlTable'
 import { MonthSelectorClient } from '@/components/dashboard/MonthSelectorClient'
 import { IncomesSection } from '@/components/dashboard/IncomesSection'
 import { EmployeesTable } from '@/components/dashboard/EmployeesTable'
-import { TrendingUp, TrendingDown, Wallet, Percent } from 'lucide-react'
 import type { Income } from '@/types'
 
 interface DashboardSummary {
@@ -164,9 +163,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     getMonthIncomes(month),
   ])
 
-  const totalCosts = summary.totalVar + summary.totalFixed + summary.totalExtra + (summary.totalSalaries ?? 0)
-  const profit = summary.totalIncome - totalCosts
-  const marginPct = summary.totalIncome > 0 ? (profit / summary.totalIncome) * 100 : 0
+  // Rozpad mezd a cestovného za aktuální měsíc bere P&L (RPC je vrací sloučené)
+  const monthIdx = parseInt(month.split(',')[0])
+  const thisMonth = yearly.pnl.find(p => p.monthIdx === monthIdx)
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-10">
@@ -182,31 +181,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
         <MonthSelectorClient currentMonth={month} />
       </div>
 
-      {/* 1. Roční graf — celý rok (bar / pie toggle) */}
+      {/* Výsledek měsíce — první věc, kterou chceš vidět */}
+      <MonthResult
+        monthLabel={formatMonth(month)}
+        income={summary.totalIncome}
+        wages={thisMonth?.wages ?? 0}
+        travel={thisMonth?.travel ?? 0}
+        fixed={summary.totalFixed}
+        extra={summary.totalExtra}
+        salaries={summary.totalSalaries ?? 0}
+      />
+
+      {/* Roční graf — celý rok (bar / pie toggle) */}
       <YearlyBarChart data={yearly.bars} totals={yearly.totals} year={year} />
 
       {/* Výsledovka po měsících */}
       <PnlTable pnl={yearly.pnl} year={year} />
 
-      {/* 2. KPI — aktuální měsíc */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-          Aktuální měsíc · {formatMonth(month)}
-        </h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard title="Příjmy"   value={summary.totalIncome} icon={TrendingUp}   colorClass="text-green-700" />
-          <KpiCard title="Náklady"  value={totalCosts}          icon={TrendingDown} colorClass="text-red-600" />
-          <KpiCard title="Zisk"     value={profit}              icon={Wallet}
-            colorClass={profit >= 0 ? 'text-primary-900' : 'text-red-600'} />
-          <KpiCard title="Marže"    value={marginPct}           icon={Percent} format="percent"
-            colorClass={marginPct >= 0 ? 'text-primary-900' : 'text-red-600'} />
-        </div>
-      </section>
-
       {/* 3. Příjmy & projekty — všechny za měsíc (tabulka nebo koláč) */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Příjmy & Projekty · {formatMonth(month)}</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">💰 Příjmy &amp; Projekty · {formatMonth(month)}</h2>
           <p className="text-xs text-gray-400">{monthIncomes.length} záznamů</p>
         </div>
         <IncomesSection incomes={monthIncomes} />
@@ -215,7 +210,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       {/* 4. Zaměstnanci v měsíci */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Zaměstnanci · {formatMonth(month)}</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">🧑‍💻 Zaměstnanci · {formatMonth(month)}</h2>
           <p className="text-xs text-gray-400">{summary.varByMember.length} osob</p>
         </div>
         <EmployeesTable members={summary.varByMember} />
