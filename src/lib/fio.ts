@@ -94,14 +94,13 @@ export async function getFioBalances(): Promise<FioBalance[]> {
   const tokens = getFioTokens()
 
   const today = new Date().toISOString().slice(0, 10)
-  const results: FioBalance[] = []
 
-  for (const { envKey, token } of tokens) {
+  // Účty se stahují souběžně — Fio limituje 1 požadavek / 30 s / token, takže
+  // paralelně přes různé tokeny je to v pořádku. Sériově to načítání stránky
+  // prodlužovalo o celý jeden kulatý čas na každý účet navíc.
+  const results = await Promise.all(tokens.map(async ({ envKey, token }) => {
     const cached = balanceCache.get(envKey)
-    if (cached && Date.now() - cached.ts < BALANCE_TTL_MS) {
-      results.push(cached.data)
-      continue
-    }
+    if (cached && Date.now() - cached.ts < BALANCE_TTL_MS) return cached.data
     try {
       const info = (await fetchFioFull(token, today, today)).info
       const data: FioBalance = {
@@ -112,13 +111,14 @@ export async function getFioBalances(): Promise<FioBalance[]> {
         fetchedAt: new Date().toISOString(),
       }
       balanceCache.set(envKey, { data, ts: Date.now() })
-      results.push(data)
+      return data
     } catch {
       // rate limit / výpadek — použij poslední známou hodnotu, jinak účet přeskoč
-      if (cached) results.push(cached.data)
+      return cached?.data ?? null
     }
-  }
-  return results
+  }))
+
+  return results.filter((r): r is FioBalance => r !== null)
 }
 
 export function mapFioTransactionToDb(t: FioTransaction) {
