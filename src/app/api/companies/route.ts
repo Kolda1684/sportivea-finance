@@ -13,9 +13,15 @@ export async function GET() {
   const admin = createAdminSupabaseClient()
   const { data, error } = await admin
     .from('companies')
-    .select('id, name')
+    .select('id, name, status')
     .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+
+  // Stav chodí z Notionu. Bez řazení se mezi aktivní klienty míchají ukončení
+  // i nikdy nezačatí — nabídka pak vypadá neaktuálně.
+  const rank = (s: string | null) => (s === 'active' ? 0 : s === 'on-hold' ? 1 : s === 'not started' ? 2 : 3)
+  const sorted = (data ?? []).sort((a, b) => rank(a.status) - rank(b.status) || a.name.localeCompare(b.name, 'cs'))
+
+  return NextResponse.json(sorted)
 }

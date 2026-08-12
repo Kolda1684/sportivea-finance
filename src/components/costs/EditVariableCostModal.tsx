@@ -29,16 +29,21 @@ export function EditVariableCostModal({ cost, open, onClose, onSaved }: Props) {
     date: '',
   })
   const [loading, setLoading] = useState(false)
-  const [clients, setClients] = useState<string[]>([])
+  const [clients, setClients] = useState<{ name: string; status: string | null }[]>([])
 
   // Klienti z databáze (synchronizovaní z Notionu) — načíst při prvním otevření
   useEffect(() => {
     if (!open || clients.length > 0) return
     fetch('/api/companies')
       .then(r => r.ok ? r.json() : [])
-      .then((data: { id: string; name: string }[]) => setClients(data.map(c => c.name)))
+      .then((data: { id: string; name: string; status: string | null }[]) =>
+        setClients(data.map(c => ({ name: c.name, status: c.status }))))
       .catch(() => {})
   }, [open, clients.length])
+
+  // Aktivní nahoru, ukončení dolů — jinak se v nabídce ztratí mezi 31 hotovými
+  const activeClients = clients.filter(c => c.status === 'active')
+  const otherClients = clients.filter(c => c.status !== 'active')
 
   useEffect(() => {
     if (cost) {
@@ -114,10 +119,21 @@ export function EditVariableCostModal({ cost, open, onClose, onSaved }: Props) {
                 <SelectContent>
                   <SelectItem value="—">— Bez klienta</SelectItem>
                   {/* aktuální hodnota, která už není v seznamu klientů */}
-                  {form.client && !clients.includes(form.client) && (
+                  {form.client && !clients.some(c => c.name === form.client) && (
                     <SelectItem value={form.client}>{form.client}</SelectItem>
                   )}
-                  {clients.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {activeClients.length > 0 && (
+                    <div className="px-2 pt-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                      Aktivní
+                    </div>
+                  )}
+                  {activeClients.map(c => <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>)}
+                  {otherClients.length > 0 && (
+                    <div className="mt-1 border-t px-2 pt-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      Neaktivní
+                    </div>
+                  )}
+                  {otherClients.map(c => <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
