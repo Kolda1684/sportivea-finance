@@ -199,8 +199,7 @@ export default function SalariesPage() {
           <p className="text-sm text-gray-500 mt-1">
             Rok {year}: <span className="font-semibold text-red-600">{formatCZK(grandTotal)}</span>
             <span className="ml-2 text-xs text-muted-foreground">
-              · mřížka {formatCZK(gridTotal)}{incomeTotal > 0 && <> + z příjmů {formatCZK(incomeTotal)}</>}
-              {' · '}vyplaceno {formatCZK(paidTotal)} ({gridTotal > 0 ? Math.round((paidTotal / gridTotal) * 100) : 0} %)
+              · vyplaceno {formatCZK(paidTotal)} ({gridTotal > 0 ? Math.round((paidTotal / gridTotal) * 100) : 0} %)
             </span>
           </p>
         </div>
@@ -231,7 +230,6 @@ export default function SalariesPage() {
               </p>
               <p className="mt-1.5 text-xs text-violet-900/70">
                 {formatCZK(o.total)} za {rangeLabel} ÷ {elapsedMonths}
-                {o.income > 0 && <> · z toho {formatCZK(o.income)} vlastní fakturou</>}
               </p>
             </div>
           ))}
