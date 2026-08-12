@@ -100,6 +100,7 @@ export interface ExtraCost {
   note: string | null
   month: string | null
   fio_transaction_id: string | null
+  project_id?: string | null   // ruční přiřazení k projektu (půjčovné, doprava…)
   created_at: string
 }
 
