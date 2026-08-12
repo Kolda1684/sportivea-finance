@@ -12,7 +12,18 @@ interface MonthSelectorClientProps {
 
 export function MonthSelectorClient({ currentMonth, basePath = '/dashboard' }: MonthSelectorClientProps) {
   const router = useRouter()
-  const months = getLastNMonths(24)
+
+  // Měsíc z URL může ležet mimo posledních 24 (budoucí, starší). Bez doplnění
+  // by výběr zůstal prázdný a šipka doprava by skočila na nejstarší měsíc.
+  const months = (() => {
+    const list = getLastNMonths(24)
+    if (list.includes(currentMonth)) return list
+    const key = (m: string) => {
+      const [mm, yy] = m.split(',').map(Number)
+      return yy * 12 + mm
+    }
+    return [...list, currentMonth].sort((a, b) => key(a) - key(b))
+  })()
 
   function go(month: string) {
     router.push(`${basePath}?month=${month}`)
