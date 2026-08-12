@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatCZK, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { parseKeywords } from '@/lib/project-stats'
 import type { ProjectCostRow, ProjectIncomeRow } from '@/lib/project-stats'
 
 interface ProjectWithStats {
@@ -139,38 +140,50 @@ export default function ProjectsPage() {
             const isOpen = expanded.has(p.id)
             const marginPct = p.stats.income > 0 ? Math.round((p.stats.profit / p.stats.income) * 100) : null
             return (
-              <div key={p.id} className="rounded-xl border bg-white overflow-hidden">
+              <div
+                key={p.id}
+                className={cn(
+                  'rounded-2xl border overflow-hidden',
+                  p.stats.profit >= 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-rose-200 bg-rose-50/40'
+                )}
+              >
                 <div
-                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/70"
+                  className="flex items-center gap-3 px-5 py-4 cursor-pointer transition-colors hover:bg-white/50"
                   onClick={() => toggleExpand(p.id)}
                 >
-                  {isOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                  {isOpen
+                    ? <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                    : <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />}
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{p.name}</p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {p.client && <span>{p.client} · </span>}
-                      klíčová slova: {p.keywords}
+                    <p className="font-semibold text-gray-900 truncate">📁 {p.name}</p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
+                      {p.client && <span className="font-medium">{p.client}</span>}
+                      {parseKeywords(p.keywords).map(k => (
+                        <span key={k} className="rounded bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">{k}</span>
+                      ))}
                       {(p.date_from || p.date_to) && (
-                        <span> · {p.date_from ? formatDate(p.date_from) : '…'} – {p.date_to ? formatDate(p.date_to) : '…'}</span>
+                        <span>{p.date_from ? formatDate(p.date_from) : '…'} – {p.date_to ? formatDate(p.date_to) : '…'}</span>
                       )}
                     </p>
                   </div>
-                  <div className="ml-auto flex items-center gap-5 text-right whitespace-nowrap">
+                  <div className="ml-auto flex items-center gap-6 text-right whitespace-nowrap">
                     <div>
-                      <p className="text-xs text-gray-400">Příjmy</p>
-                      <p className="font-semibold text-green-700 tabular-nums">{formatCZK(p.stats.income)}</p>
+                      <p className="text-xs font-medium text-emerald-800/70">💰 Příjmy</p>
+                      <p className="font-semibold tabular-nums text-emerald-700">{formatCZK(p.stats.income)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Náklady</p>
-                      <p className="font-semibold text-red-600 tabular-nums">{formatCZK(p.stats.costs)}</p>
+                      <p className="text-xs font-medium text-rose-800/70">💸 Náklady</p>
+                      <p className="font-semibold tabular-nums text-rose-700">{formatCZK(p.stats.costs)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Zisk{marginPct != null && ` · ${marginPct} %`}</p>
-                      <p className={cn('font-bold tabular-nums', p.stats.profit >= 0 ? 'text-gray-900' : 'text-red-600')}>
-                        {formatCZK(p.stats.profit)}
+                      <p className={cn('text-xs font-medium', p.stats.profit >= 0 ? 'text-emerald-800/70' : 'text-rose-800/70')}>
+                        Zisk{marginPct != null && ` · ${marginPct} %`}
+                      </p>
+                      <p className={cn('text-xl font-bold tabular-nums', p.stats.profit >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
+                        {p.stats.profit >= 0 && '+'}{formatCZK(p.stats.profit)}
                       </p>
                     </div>
-                    <div className="flex gap-1 pl-2">
+                    <div className="flex gap-1 pl-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => { e.stopPropagation(); openEdit(p) }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -181,16 +194,29 @@ export default function ProjectsPage() {
                   </div>
                 </div>
 
+                {/* Kolik z příjmů spolykaly náklady */}
+                {p.stats.income > 0 && (
+                  <div className="px-5 pb-3">
+                    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/70">
+                      <div
+                        className="bg-rose-400"
+                        style={{ width: `${Math.min((p.stats.costs / p.stats.income) * 100, 100)}%` }}
+                      />
+                      <div className="bg-emerald-500 flex-1" />
+                    </div>
+                  </div>
+                )}
+
                 {p.error && (
                   <p className="px-4 pb-3 -mt-1 text-xs text-amber-700 bg-amber-50/60">⚠️ {p.error}</p>
                 )}
 
                 {isOpen && (
-                  <div className="border-t grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
+                  <div className="border-t bg-white grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
                     {/* Příjmy */}
                     <div>
-                      <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-green-700">
-                        Příjmy ({p.incomeRows.length})
+                      <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                        💰 Příjmy ({p.incomeRows.length})
                       </p>
                       <table className="w-full text-sm">
                         <tbody className="divide-y divide-gray-100">
@@ -211,8 +237,8 @@ export default function ProjectsPage() {
                     </div>
                     {/* Náklady */}
                     <div>
-                      <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-red-600">
-                        Náklady ({p.costRows.length})
+                      <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-rose-700">
+                        💸 Náklady ({p.costRows.length})
                         {p.stats.travel > 0 && <span className="text-teal-600 normal-case font-normal"> · z toho cesťáky {formatCZK(p.stats.travel)}</span>}
                       </p>
                       <table className="w-full text-sm">
