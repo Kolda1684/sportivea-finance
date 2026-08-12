@@ -31,6 +31,15 @@ export interface ProjectCostRow {
   project_id?: string | null   // ruční přiřazení; má přednost před klíčovými slovy
 }
 
+export interface ProjectExtraRow {
+  id: string
+  name: string | null
+  amount: number | null
+  date: string | null
+  month: string | null
+  note: string | null
+}
+
 export interface ProjectIncomeRow {
   client: string | null
   project_name: string | null
@@ -66,8 +75,8 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
   const keywords = parseKeywords(project.keywords)
   if (keywords.length === 0) {
     return {
-      stats: { income: 0, costs: 0, travel: 0, profit: 0 },
-      incomeRows: [], costRows: [],
+      stats: { income: 0, costs: 0, travel: 0, extra: 0, profit: 0 },
+      incomeRows: [], costRows: [], extraRows: [],
       error: 'Klíčová slova jsou prázdná nebo příliš krátká (min. 2 znaky)',
     }
   }
@@ -86,7 +95,7 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
     .from('variable_costs').select(cols).eq('is_done', true).or(costOr)
     .order('date', { ascending: false })
 
-  const [firstTry, assignedRes, incomeRes] = await Promise.all([
+  const [firstTry, assignedRes, incomeRes, extraRes] = await Promise.all([
     keywordQuery(`${BASE_COLS}, project_id`),
     // Ručně přiřazené tasky — započítají se i bez shody klíčového slova
     supabase.from('variable_costs').select(`${BASE_COLS}, project_id`)
@@ -94,6 +103,10 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
       .order('date', { ascending: false }),
     supabase.from('income').select('client, project_name, amount, date, month, status, note')
       .or(incomeOr).order('date', { ascending: false }),
+    // Vedlejší náklady (půjčovné, doprava) — jen ručně přiřazené, klíčová slova
+    // se na ně nepoužívají: názvy jako ALZA nebo UBER by chytaly napříč projekty
+    supabase.from('extra_costs').select('id, name, amount, date, month, note')
+      .eq('project_id', project.id).order('date', { ascending: false }),
   ])
 
   const hasProjectColumn = !missingProjectColumn(firstTry.error?.message)
@@ -117,14 +130,20 @@ export async function computeProjectStats(supabase: SupabaseClient, project: Pro
   // Supabase vrací max 1000 řádků — u příliš širokého slova by součet tiše chyběl
   const truncated = costRows.length >= 1000 || incomeRows.length >= 1000
 
+  const extraRows = ((extraRes.data ?? []) as ProjectExtraRow[])
+    .filter(r => inRange(r.date, r.month, project.date_from, project.date_to))
+
   const travel = costRows.filter(r => r.task_type === 'Cesťák').reduce((s, r) => s + (r.price ?? 0), 0)
   const work = costRows.filter(r => r.task_type !== 'Cesťák').reduce((s, r) => s + (r.price ?? 0), 0)
+  const extra = extraRows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
   const income = incomeRows.reduce((s, r) => s + (r.amount ?? 0), 0)
+  const costs = work + travel + extra
 
   return {
-    stats: { income, costs: work + travel, travel, profit: income - work - travel },
+    stats: { income, costs, travel, extra, profit: income - costs },
     incomeRows,
     costRows,
+    extraRows,
     error: error ?? (truncated ? 'Klíčové slovo je příliš široké — zobrazeno jen prvních 1000 řádků, součet není úplný' : null),
   }
 }
