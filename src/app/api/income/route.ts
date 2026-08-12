@@ -35,7 +35,9 @@ export async function POST(req: NextRequest) {
       date: body.date ?? null,
       status: body.status ?? 'cekame',
       note: body.note ?? null,
-      billed_to: body.billed_to || null,
+      // Výchozí je firma; na Honzu/Martina se přepíná jen u faktur, které
+      // vystavuje majitel sám
+      billed_to: body.billed_to || 'Sportivea',
       month: body.month ?? (body.date ? dateToMonth(new Date(body.date)) : getCurrentMonth()),
     })
     .select()
